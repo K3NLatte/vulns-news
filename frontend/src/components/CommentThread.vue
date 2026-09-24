@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { MessageSquare, Trash2 } from '@lucide/vue'
 import type { FeedComment } from '../types/workspace'
 
@@ -17,6 +17,7 @@ const emit = defineEmits<{
 }>()
 
 const draft = ref('')
+const commentInput = ref<HTMLTextAreaElement | null>(null)
 const error = ref('')
 const status = ref('')
 const visibleError = computed(() => error.value || props.submissionError)
@@ -60,18 +61,25 @@ function addComment() {
   }
   if (!body) {
     error.value = 'コメントを入力してください。'
+    commentInput.value?.focus()
     return
   }
   if (body.length > maxLength) {
     error.value = 'コメントは2,000文字以内で入力してください。'
+    commentInput.value?.focus()
     return
   }
   emit('add', body)
 }
 
-function removeComment(comment: FeedComment) {
+async function removeComment(comment: FeedComment) {
   if (props.currentUserId && comment.authorId === props.currentUserId) {
     emit('remove', comment.id)
+    await nextTick()
+    // A removed button cannot remain the keyboard's return point.
+    if (!props.comments.some(item => item.id === comment.id)) {
+      commentInput.value?.focus()
+    }
   }
 }
 </script>
@@ -115,6 +123,7 @@ function removeComment(comment: FeedComment) {
       <label for="article-comment">コメントを追加</label>
       <textarea
         id="article-comment"
+        ref="commentInput"
         v-model="draft"
         name="comment"
         rows="4"
