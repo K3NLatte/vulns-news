@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 const externalServer = process.env.PLAYWRIGHT_BASE_URL
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: '**/*.production.spec.ts',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
