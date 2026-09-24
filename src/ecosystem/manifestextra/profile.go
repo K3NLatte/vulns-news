@@ -15,6 +15,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"vulns-news/src/domain"
+	"vulns-news/src/traversal"
 )
 
 type Fragment struct {
@@ -39,7 +40,15 @@ type state struct {
 }
 
 // Profile returns no partial inventory on traversal, decoding, or limit errors.
-func Profile(root string) (Fragment, error) {
+func Profile(root string) (Fragment, error) { return profileWithTraversal(root, nil) }
+
+// ProfileWithTraversal optionally reuses directory listings from cache.
+// Use one stable root per cache and call profiles sequentially; nil disables caching.
+func ProfileWithTraversal(root string, cache *traversal.Cache) (Fragment, error) {
+	return profileWithTraversal(root, cache)
+}
+
+func profileWithTraversal(root string, cache *traversal.Cache) (Fragment, error) {
 	if strings.TrimSpace(root) == "" {
 		return Fragment{}, errors.New("empty profile root")
 	}
@@ -83,7 +92,7 @@ func Profile(root string) (Fragment, error) {
 			return fmt.Errorf("%s: directory changed", dir)
 		}
 		for {
-			batch, readErr := d.ReadDir(128)
+			batch, readErr := cache.ReadDir(dir, d, 128)
 			for _, e := range batch {
 				entries++
 				if entries > maxEntries {

@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"vulns-news/src/traversal"
 )
 
 // Fixed budgets apply to one Inspect invocation. They bound work and retained
@@ -87,6 +89,7 @@ type source struct {
 }
 
 type inspector struct {
+	cache   *traversal.Cache
 	root    *os.Root
 	fset    *token.FileSet
 	report  Report
@@ -99,7 +102,18 @@ type inspector struct {
 // Errors (including ErrLimit) return an incomplete report; callers must not
 // treat an incomplete report or an empty result as negative security evidence.
 func Inspect(root string) (Report, error) {
-	i := inspector{fset: token.NewFileSet(), report: Report{
+	return inspect(root, nil)
+}
+
+// InspectWithTraversal is Inspect with optional directory enumeration reuse.
+// The cache must be used sequentially for one root with stable directory contents.
+// A nil cache preserves uncached inspection.
+func InspectWithTraversal(root string, cache *traversal.Cache) (Report, error) {
+	return inspect(root, cache)
+}
+
+func inspect(root string, cache *traversal.Cache) (Report, error) {
+	i := inspector{cache: cache, fset: token.NewFileSet(), report: Report{
 		Findings: []Finding{},
 		Limitations: []string{
 			"Syntax observations only: no proof of execution, reachability, vulnerability, or CVE usage; no CVE rules are applied.",
@@ -157,7 +171,7 @@ func (i *inspector) walk(dir string, depth int) error {
 	}
 	defer f.Close()
 	for {
-		entries, readErr := f.ReadDir(64)
+		entries, readErr := i.cache.ReadDir(dir, f, 64)
 		for _, entry := range entries {
 			i.entries++
 			if i.entries > MaxEntries {

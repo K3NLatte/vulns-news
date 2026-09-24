@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"vulns-news/src/domain"
+	"vulns-news/src/traversal"
 )
 
 var (
@@ -67,10 +68,19 @@ func NewProfiler(limits Limits) (*Profiler, error) {
 // resource limits) return an empty fragment, never a silently truncated inventory.
 func Profile(root string) (ProfileFragment, error) { return New().Profile(root) }
 
+// ProfileWithTraversal profiles root with an optional directory enumeration cache.
+func ProfileWithTraversal(root string, cache *traversal.Cache) (ProfileFragment, error) {
+	return New().profile(root, cache)
+}
+
 // Profile rejects a symlink root and skips descendant symlinks and special files.
 // os.Root confines all opens to the root, including during concurrent renames.
 // Profile an immutable checkout: concurrent modifications can change its contents.
 func (p *Profiler) Profile(root string) (ProfileFragment, error) {
+	return p.profile(root, nil)
+}
+
+func (p *Profiler) profile(root string, cache *traversal.Cache) (ProfileFragment, error) {
 	if p == nil {
 		return ProfileFragment{}, errors.New("nil static profiler")
 	}
@@ -105,7 +115,7 @@ func (p *Profiler) Profile(root string) (ProfileFragment, error) {
 		}
 		defer f.Close()
 		for {
-			entries, readErr := f.ReadDir(1)
+			entries, readErr := cache.ReadDir(dir, f, 1)
 			for _, entry := range entries {
 				seen++
 				if seen > p.limits.MaxFiles {

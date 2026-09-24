@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"vulns-news/src/domain"
+	"vulns-news/src/traversal"
 )
 
 type Fragment struct {
@@ -39,7 +40,17 @@ type state struct {
 // Use a stable checkout: os.Root confines access but does not provide a snapshot.
 func Profile(root string) (Fragment, error) { return profile(root, defaultLimits) }
 
+// ProfileWithTraversal optionally reuses directory listings from cache.
+// Use one stable root per cache and call profiles sequentially; nil disables caching.
+func ProfileWithTraversal(root string, cache *traversal.Cache) (Fragment, error) {
+	return profileWithTraversal(root, defaultLimits, cache)
+}
+
 func profile(root string, lim limits) (Fragment, error) {
+	return profileWithTraversal(root, lim, nil)
+}
+
+func profileWithTraversal(root string, lim limits, cache *traversal.Cache) (Fragment, error) {
 	if strings.TrimSpace(root) == "" {
 		return Fragment{}, errors.New("empty profile root")
 	}
@@ -84,7 +95,7 @@ func profile(root string, lim limits) (Fragment, error) {
 			return fmt.Errorf("%s: directory changed during open", dir)
 		}
 		for {
-			batch, readErr := d.ReadDir(128)
+			batch, readErr := cache.ReadDir(dir, d, 128)
 			for _, entry := range batch {
 				entries++
 				if entries > lim.entries {

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"vulns-news/src/domain"
+	"vulns-news/src/traversal"
 )
 
 type Fragment struct {
@@ -44,9 +45,18 @@ func NewProfiler(l Limits) (*Profiler, error) {
 }
 func Profile(root string) (Fragment, error) { return New().Profile(root) }
 
+// ProfileWithTraversal profiles root with an optional directory enumeration cache.
+func ProfileWithTraversal(root string, cache *traversal.Cache) (Fragment, error) {
+	return New().profile(root, cache)
+}
+
 // Profile returns no partial inventory on parse, traversal, or resource-limit errors.
 // os.Root confines reads; symlinks and special files are never intentionally opened.
 func (p *Profiler) Profile(root string) (Fragment, error) {
+	return p.profile(root, nil)
+}
+
+func (p *Profiler) profile(root string, cache *traversal.Cache) (Fragment, error) {
 	if p == nil {
 		return Fragment{}, errors.New("nil structuredlock profiler")
 	}
@@ -81,7 +91,7 @@ func (p *Profiler) Profile(root string) (Fragment, error) {
 		}
 		defer d.Close()
 		for {
-			entries, readErr := d.ReadDir(128)
+			entries, readErr := cache.ReadDir(dir, d, 128)
 			for _, e := range entries {
 				files++
 				if files > p.limits.MaxFiles {

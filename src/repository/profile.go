@@ -20,6 +20,7 @@ import (
 	"vulns-news/src/ecosystem/staticprofile"
 	"vulns-news/src/ecosystem/structuredlock"
 	"vulns-news/src/sourceinspect"
+	"vulns-news/src/traversal"
 )
 
 const (
@@ -31,17 +32,21 @@ const (
 // detects common source languages by extension, and derives explicit product
 // aliases from npm package identities for later NVD CPE candidate matching.
 func ProfileNPM(acquired *AcquiredRepository, profiledAt time.Time) (domain.RepositoryProfile, error) {
+	return profileNPMWithTraversal(acquired, profiledAt, nil)
+}
+
+func profileNPMWithTraversal(acquired *AcquiredRepository, profiledAt time.Time, cache *traversal.Cache) (domain.RepositoryProfile, error) {
 	if acquired == nil {
 		return domain.RepositoryProfile{}, errors.New("acquired repository is required")
 	}
 	if strings.TrimSpace(acquired.Path) == "" {
 		return domain.RepositoryProfile{}, errors.New("acquired repository path is required")
 	}
-	fragment, err := npmprofile.Profile(acquired.Path)
+	fragment, err := npmprofile.ProfileFS(cache.WrapFS(os.DirFS(acquired.Path)))
 	if err != nil {
 		return domain.RepositoryProfile{}, err
 	}
-	languages, err := detectLanguages(acquired.Path)
+	languages, err := detectLanguagesWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, err
 	}
@@ -57,12 +62,21 @@ func ProfileNPM(acquired *AcquiredRepository, profiledAt time.Time) (domain.Repo
 
 // Profile combines static declaration inventories and bounded Go source observations.
 // Unsupported constructs are reported rather than interpreted as absence.
+// Directory entries are shared only within this call; the checkout must remain
+// unchanged until profiling completes.
 func Profile(acquired *AcquiredRepository, profiledAt time.Time) (domain.RepositoryProfile, error) {
-	profile, err := ProfileNPM(acquired, profiledAt)
+	return ProfileWithTraversal(acquired, profiledAt, traversal.New())
+}
+
+// ProfileWithTraversal allows explicit control of directory enumeration caching.
+// A nil cache uses uncached traversal for compatibility checks. Otherwise, use a
+// fresh cache for one stable checkout and do not share it between concurrent calls.
+func ProfileWithTraversal(acquired *AcquiredRepository, profiledAt time.Time, cache *traversal.Cache) (domain.RepositoryProfile, error) {
+	profile, err := profileNPMWithTraversal(acquired, profiledAt, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, err
 	}
-	extra, err := staticprofile.Profile(acquired.Path)
+	extra, err := staticprofile.ProfileWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, err
 	}
@@ -74,11 +88,11 @@ func Profile(acquired *AcquiredRepository, profiledAt time.Time) (domain.Reposit
 		}
 		profile.Warnings = append(profile.Warnings, fmt.Sprintf("%s:%d: %s", warning.SourcePath, warning.Line, warning.Message))
 	}
-	locks, err := lockprofile.Profile(acquired.Path)
+	locks, err := lockprofile.ProfileWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, fmt.Errorf("profile lockfiles: %w", err)
 	}
-	structured, err := structuredlock.Profile(acquired.Path)
+	structured, err := structuredlock.ProfileWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, fmt.Errorf("profile structured lockfiles: %w", err)
 	}
@@ -88,15 +102,15 @@ func Profile(acquired *AcquiredRepository, profiledAt time.Time) (domain.Reposit
 	profile.Ecosystems = append(profile.Ecosystems, structured.Ecosystems...)
 	profile.Warnings = append(profile.Warnings, locks.Warnings...)
 	profile.Warnings = append(profile.Warnings, structured.Warnings...)
-	additional, err := extralock.Profile(acquired.Path)
+	additional, err := extralock.ProfileWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, fmt.Errorf("profile additional lockfiles: %w", err)
 	}
-	manifests, err := manifestextra.Profile(acquired.Path)
+	manifests, err := manifestextra.ProfileWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, fmt.Errorf("profile additional manifests: %w", err)
 	}
-	native, err := nativeprofile.Profile(acquired.Path)
+	native, err := nativeprofile.ProfileWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, fmt.Errorf("profile native dependencies: %w", err)
 	}
@@ -109,7 +123,7 @@ func Profile(acquired *AcquiredRepository, profiledAt time.Time) (domain.Reposit
 	profile.Warnings = append(profile.Warnings, additional.Warnings...)
 	profile.Warnings = append(profile.Warnings, manifests.Warnings...)
 	profile.Warnings = append(profile.Warnings, native.Warnings...)
-	coverageWarnings, err := dependencyCoverageWarnings(acquired.Path)
+	coverageWarnings, err := dependencyCoverageWarningsWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, fmt.Errorf("detect unsupported dependency formats: %w", err)
 	}
@@ -122,7 +136,7 @@ func Profile(acquired *AcquiredRepository, profiledAt time.Time) (domain.Reposit
 			profile.Products = append(profile.Products, npmProductCandidates([]domain.Component{component})...)
 		}
 	}
-	observations, err := sourceinspect.Inspect(acquired.Path)
+	observations, err := sourceinspect.InspectWithTraversal(acquired.Path, cache)
 	if err != nil {
 		return domain.RepositoryProfile{}, fmt.Errorf("inspect source: %w", err)
 	}
@@ -172,6 +186,10 @@ func npmProductCandidates(components []domain.Component) []domain.ProductCandida
 }
 
 func detectLanguages(root string) ([]domain.LanguageUsage, error) {
+	return detectLanguagesWithTraversal(root, nil)
+}
+
+func detectLanguagesWithTraversal(root string, cache *traversal.Cache) ([]domain.LanguageUsage, error) {
 	root = filepath.Clean(root)
 	info, err := os.Lstat(root)
 	if err != nil {
@@ -191,7 +209,7 @@ func detectLanguages(root string) ([]domain.LanguageUsage, error) {
 	sources := make(map[string][]string)
 	total := 0
 	seen := 0
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	visit := func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -260,7 +278,14 @@ func detectLanguages(root string) ([]domain.LanguageUsage, error) {
 			sources[language] = append(sources[language], filepath.ToSlash(relative))
 		}
 		return nil
-	})
+	}
+	if cache == nil {
+		err = filepath.WalkDir(root, visit)
+	} else {
+		err = fs.WalkDir(cache.WrapFS(os.DirFS(root)), ".", func(relative string, entry fs.DirEntry, walkErr error) error {
+			return visit(filepath.Join(root, filepath.FromSlash(relative)), entry, walkErr)
+		})
+	}
 	if err != nil {
 		return nil, err
 	}

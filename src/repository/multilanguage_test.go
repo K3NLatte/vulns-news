@@ -36,9 +36,16 @@ func TestMultilanguageProfileMixedLockfiles(t *testing.T) {
 	}
 	acquired := &AcquiredRepository{Path: root, Identity: domain.RepositoryIdentity{ID: "example/polyglot", CommitSHA: "abc123"}}
 	at := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC)
-	got, err := Profile(acquired, at)
+	got, err := ProfileWithTraversal(acquired, at, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	cached, err := Profile(acquired, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, cached) {
+		t.Fatalf("cached profile differs: legacy=%#v cached=%#v", got, cached)
 	}
 	if got.Repository != acquired.Identity || got.ProfiledAt != at {
 		t.Errorf("snapshot identity lost: %+v", got)

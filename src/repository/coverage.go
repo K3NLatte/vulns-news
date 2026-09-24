@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"vulns-news/src/traversal"
 )
 
 const (
@@ -19,10 +21,18 @@ const (
 // dependencyCoverageWarnings recognizes selected unsupported dependency formats.
 // It does not read files, execute manifests, or claim exhaustive format coverage.
 func dependencyCoverageWarnings(root string) ([]string, error) {
-	return dependencyCoverageWarningsWithLimits(root, maxCoverageEntries, maxCoverageDepth)
+	return dependencyCoverageWarningsWithTraversal(root, nil)
+}
+
+func dependencyCoverageWarningsWithTraversal(root string, cache *traversal.Cache) ([]string, error) {
+	return dependencyCoverageWarningsCore(root, maxCoverageEntries, maxCoverageDepth, cache)
 }
 
 func dependencyCoverageWarningsWithLimits(root string, maxEntries, maxDepth int) ([]string, error) {
+	return dependencyCoverageWarningsCore(root, maxEntries, maxDepth, nil)
+}
+
+func dependencyCoverageWarningsCore(root string, maxEntries, maxDepth int, cache *traversal.Cache) ([]string, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("dependency coverage root is required")
 	}
@@ -61,7 +71,7 @@ func dependencyCoverageWarningsWithLimits(root string, maxEntries, maxDepth int)
 		defer d.Close()
 		for {
 			// Batch reads bound allocations even for an extremely wide directory.
-			batch, readErr := d.ReadDir(128)
+			batch, readErr := cache.ReadDir(relative, d, 128)
 			for _, entry := range batch {
 				entries++
 				if entries > maxEntries {

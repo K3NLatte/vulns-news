@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"vulns-news/src/domain"
+	"vulns-news/src/traversal"
 )
 
 // Fragment contains declarations, not a fully resolved dependency graph.
@@ -54,6 +55,11 @@ var formats = map[string]format{
 // returns an empty fragment on error. Use an immutable checkout: os.Root prevents
 // escape, but cannot provide a snapshot or eliminate in-root replacement races.
 func Profile(root string) (Fragment, error) {
+	return ProfileWithTraversal(root, nil)
+}
+
+// ProfileWithTraversal profiles root with an optional directory enumeration cache.
+func ProfileWithTraversal(root string, cache *traversal.Cache) (Fragment, error) {
 	if strings.TrimSpace(root) == "" {
 		return Fragment{}, errors.New("empty profile root")
 	}
@@ -90,7 +96,7 @@ func Profile(root string) (Fragment, error) {
 		}
 		defer d.Close()
 		for {
-			batch, readErr := d.ReadDir(1)
+			batch, readErr := cache.ReadDir(dir, d, 1)
 			for _, e := range batch {
 				entries++
 				if entries > maxEntries {
