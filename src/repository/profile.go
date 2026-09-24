@@ -2,7 +2,9 @@ package repository
 
 import (
 	"errors"
+	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -10,7 +12,10 @@ import (
 
 	"fmt"
 	"vulns-news/src/domain"
+	"vulns-news/src/ecosystem/extralock"
 	"vulns-news/src/ecosystem/lockprofile"
+	"vulns-news/src/ecosystem/manifestextra"
+	"vulns-news/src/ecosystem/nativeprofile"
 	npmprofile "vulns-news/src/ecosystem/npm"
 	"vulns-news/src/ecosystem/staticprofile"
 	"vulns-news/src/ecosystem/structuredlock"
@@ -83,6 +88,32 @@ func Profile(acquired *AcquiredRepository, profiledAt time.Time) (domain.Reposit
 	profile.Ecosystems = append(profile.Ecosystems, structured.Ecosystems...)
 	profile.Warnings = append(profile.Warnings, locks.Warnings...)
 	profile.Warnings = append(profile.Warnings, structured.Warnings...)
+	additional, err := extralock.Profile(acquired.Path)
+	if err != nil {
+		return domain.RepositoryProfile{}, fmt.Errorf("profile additional lockfiles: %w", err)
+	}
+	manifests, err := manifestextra.Profile(acquired.Path)
+	if err != nil {
+		return domain.RepositoryProfile{}, fmt.Errorf("profile additional manifests: %w", err)
+	}
+	native, err := nativeprofile.Profile(acquired.Path)
+	if err != nil {
+		return domain.RepositoryProfile{}, fmt.Errorf("profile native dependencies: %w", err)
+	}
+	profile.Components = append(profile.Components, additional.Components...)
+	profile.Components = append(profile.Components, manifests.Components...)
+	profile.Components = append(profile.Components, native.Components...)
+	profile.Ecosystems = append(profile.Ecosystems, additional.Ecosystems...)
+	profile.Ecosystems = append(profile.Ecosystems, manifests.Ecosystems...)
+	profile.Ecosystems = append(profile.Ecosystems, native.Ecosystems...)
+	profile.Warnings = append(profile.Warnings, additional.Warnings...)
+	profile.Warnings = append(profile.Warnings, manifests.Warnings...)
+	profile.Warnings = append(profile.Warnings, native.Warnings...)
+	coverageWarnings, err := dependencyCoverageWarnings(acquired.Path)
+	if err != nil {
+		return domain.RepositoryProfile{}, fmt.Errorf("detect unsupported dependency formats: %w", err)
+	}
+	profile.Warnings = append(profile.Warnings, coverageWarnings...)
 	normalizeProfile(&profile)
 	// Product aliases remain npm-only, candidate-generating heuristics.
 	profile.Products = nil
@@ -141,18 +172,26 @@ func npmProductCandidates(components []domain.Component) []domain.ProductCandida
 }
 
 func detectLanguages(root string) ([]domain.LanguageUsage, error) {
-	extensions := map[string]string{
-		".c": "C", ".h": "C", ".cc": "C++", ".cpp": "C++", ".cxx": "C++",
-		".cs": "C#", ".go": "Go", ".java": "Java", ".js": "JavaScript",
-		".jsx": "JavaScript", ".kt": "Kotlin", ".kts": "Kotlin", ".php": "PHP",
-		".py": "Python", ".rb": "Ruby", ".rs": "Rust", ".swift": "Swift",
-		".ts": "TypeScript", ".tsx": "TypeScript",
+	root = filepath.Clean(root)
+	info, err := os.Lstat(root)
+	if err != nil {
+		return nil, err
 	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("language detection requires a non-symlink directory")
+	}
+	confined, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer confined.Close()
+	contentBytes := int64(0)
+	const maxLanguageContentBytes = int64(8 << 20)
 	counts := make(map[string]int)
 	sources := make(map[string][]string)
 	total := 0
 	seen := 0
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -174,7 +213,40 @@ func detectLanguages(root string) ([]domain.LanguageUsage, error) {
 		if !entry.Type().IsRegular() {
 			return nil
 		}
-		language := extensions[strings.ToLower(filepath.Ext(entry.Name()))]
+		language := languageForFilename(entry.Name())
+		if language == "" && ambiguousLanguageFilename(entry.Name()) {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			const prefixLimit = int64(16 << 10)
+			if contentBytes >= maxLanguageContentBytes {
+				return errors.New("language detection exceeds content-read limit")
+			}
+			file, err := confined.Open(relative)
+			if err != nil {
+				return err
+			}
+			stat, err := file.Stat()
+			if err != nil {
+				file.Close()
+				return err
+			}
+			if !stat.Mode().IsRegular() {
+				file.Close()
+				return nil
+			}
+			prefix, readErr := io.ReadAll(io.LimitReader(file, min(prefixLimit+1, maxLanguageContentBytes-contentBytes)))
+			closeErr := file.Close()
+			if readErr != nil {
+				return readErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+			contentBytes += int64(len(prefix))
+			language = languageFromContent(entry.Name(), prefix)
+		}
 		if language == "" {
 			return nil
 		}

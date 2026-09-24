@@ -1,5 +1,9 @@
 # Local LLM vulnerability-feed MVP
 
+See [language detection](language-detection.md) for the expanded language/DSL
+catalogue and its ambiguity rules. Detection is separate from dependency parsing
+and does not imply vulnerability-analysis support.
+
 ## Scope
 
 The MVP turns a public GitHub repository and the latest NVD publications (or an
@@ -67,7 +71,9 @@ generation, not proof that every similarly named CPE describes the npm package.
 The later deterministic match and LLM Screening stages preserve that distinction.
 
 The coordinator then merges `src/ecosystem/staticprofile`,
-`src/ecosystem/lockprofile`, and `src/ecosystem/structuredlock` inventories.
+`src/ecosystem/lockprofile`, `src/ecosystem/structuredlock`,
+`src/ecosystem/extralock`, `src/ecosystem/manifestextra`, and
+`src/ecosystem/nativeprofile` inventories.
 These are **supported parser subsets, not complete dependency resolvers**:
 profiling does not run package managers, builds, or repository scripts, fetch
 parents, or resolve a complete dependency graph.
@@ -80,15 +86,26 @@ parents, or resolve a complete dependency graph.
 | Go: `go.mod` | `require` declarations and direct/indirect markers. | `go.sum` is ignored; `replace`/`exclude` leave requirement versions unknown. No workspace, module graph, or build resolution. |
 | Python: `requirements.txt` | Names and a conservative subset of exact `==` pins. | No range, marker, URL, option, include, or dependency resolution. |
 | Python/Pipenv: `Pipfile.lock` | Exact `==` PEP 440 pins in `default`/`develop`, with runtime/development scope. | Requires unambiguous public PyPI source metadata; Git/path/editable and non-exact entries are omitted. Markers/extras and directness are not resolved. |
-| Python/Poetry: `poetry.lock` | Metadata lock versions 1.1/2.0/2.1; default PyPI when no source is declared, or explicit public PyPI source. | Conservative exact PEP 440 subset; no `pyproject.toml` dependency inventory or resolver. |
+| Python/Poetry: `poetry.lock` | Metadata lock versions 1.1/2.0/2.1; default PyPI when no source is declared, or explicit public PyPI source. | Conservative exact PEP 440 subset; no lock/manifest reconciliation or resolver. |
 | Python/uv: `uv.lock` | Version 1 with explicit public PyPI registry sources. | Conservative exact PEP 440 subset; non-registry sources are omitted. |
+| Python: `pyproject.toml` | PEP 621 dependencies/optional dependencies and Poetry dependencies, legacy dev dependencies, and named groups; supported exact pins retain versions. | Ranges/wildcards/compound constraints remain unknown; markers/extras are not evaluated. URL/file/VCS and Poetry custom-source declarations are skipped. No dynamic dependencies, PEP 735/PDM development groups, or build-system requirements. |
+| Python/PDM: `pdm.lock` | Lock versions 4.0–4.5, exact package records with explicit public PyPI index/source or qualifying files.pythonhosted.org URLs. | Filename/hash-only records do not prove PyPI origin; private/local/VCS evidence overrides public evidence. No hash verification or inferred directness. |
 | Java/Kotlin/Maven: `pom.xml` | Top-level direct dependencies with literal or bounded local-property versions and declared scopes. | Not an effective POM: no parent fetching, dependencyManagement/BOM, profile, plugin, module, or transitive resolution. Unresolved versions remain empty with warnings; unresolved coordinates and system-scoped local JARs are omitted. |
 | Java/Kotlin/Gradle: `gradle.lockfile` | Locked `group:artifact:version=configurations` records, one component per configuration. | Locked dependencies only: no build-script evaluation, dynamic versions, variants, plugins, or legacy per-configuration lockfile resolution. |
 | Rust: `Cargo.lock` | Versions 1–4 with explicit crates.io registry/index sources and exact SemVer. | No unversioned legacy format, Git/path dependencies, alternate registries, or resolver. |
+| Rust: `Cargo.toml` | Regular/dev/build/target-specific declarations and package aliases; only complete `=1.2.3`-style SemVer pins retain versions. | Bare versions are ranges, not pins. Workspace-inherited, Git/path, and custom-registry dependencies are skipped; patch/replace tables fail profiling. |
 | PHP: `composer.lock` | `packages`/`packages-dev`, vendor/name and numeric release versions, with scope. | Path distributions and dev branches omitted; custom repository provenance and directness unknown. Normal release source Git metadata alone does not exclude a package. |
 | Ruby: `Gemfile.lock` | Specs in verified public RubyGems `GEM` sections; `DEPENDENCIES` establishes directness. | GIT/PATH, private/mixed/missing remotes, and platform-qualified specs omitted. Nested requirements are not installed versions; groups/platform selection unknown. |
 | .NET: `packages.lock.json` | NuGet schemas 1/2, resolved Direct/Transitive/CentralTransitive entries, framework/runtime scope. | No project dependencies, requested-range resolution, framework selection, or graph evaluation. |
 | Swift: `Package.resolved` / `package.resolved` | Schemas 1/2/3 recognized; registry pins in 2/3 with scope.name identity and release version. | **Inventory-only, no OSV mapping.** Source-control pins (including schema 1), revisions, and branch-only pins are omitted with warnings. |
+| Dart/Pub: `pubspec.lock` | Exact hosted versions with a matching description name and explicit `https://pub.dev` URL; declared direct main/dev/transitive scope retained. | Private hosts, legacy string descriptions, SDK/path/Git entries are skipped; pub.dartlang.org is not assumed equivalent. |
+| Deno: `deno.lock` | JSON v2–v5 pinned npm records and v3–v5 JSR records, with nonempty integrity and supported registry layouts. | Specifiers/workspaces/remote hashes do not create components; alternate sources are skipped. Integrity is not verified, edges/directness are not inferred; **JSR is inventory-only**. |
+| .NET: `packages.config`, `project.assets.json` | Exact NuGet XML package records and schema-3 resolved JSON package libraries, respectively. | Includes transitive inventory without inferring directness or individual public-feed provenance; project libraries are excluded. `packages.config` is recorded as a manifest. |
+| R: `renv.lock` | Exact CRAN records with matching package identity, `Source: Repository`, and `Repository: CRAN`. | Other repositories and conflicting remote metadata are skipped. Labels do not authenticate download hosts; **CRAN is inventory-only**. |
+| Conan: `conan.lock` | v0.5 requirement lists and v0.4 graph node references with full name/version, optionally user/channel, revision, and timestamp. | Ranges, bare names, and local paths are skipped; no binary resolution. Complete references are preserved as source identities; **inventory-only**. |
+| vcpkg: `vcpkg.json` | Named string/object dependencies, including feature dependencies. | Versions remain unknown even with minimum constraints or overrides; no baseline/registry/overlay resolution or platform/feature evaluation. **Inventory-only**. |
+| CocoaPods: `Podfile.lock` | Resolved PODS specs with explicit public SPEC REPOS membership: trunk, cdn.cocoapods.org, or the CocoaPods/Specs.git GitHub URL. | Private/conflicting/missing provenance is excluded; external sources/checkouts exclude the root pod and all subspecs. Subspec names are retained, not collapsed to root pods. |
+| Julia: `Manifest.toml` | Legacy package arrays and format 2.0 deps arrays with UUID and version. | Path/repo-source entries and records without UUID/version are skipped. Registry provenance is not verified; **inventory-only** source identities. |
 
 Structured locks reject unsupported Git/path/workspace/patch/alternate-registry
 identities with source-qualified warnings. Explicit pnpm tarball and Yarn classic
@@ -99,17 +116,36 @@ RubyGems. These are static source declarations, not verified artifact provenance
 Malformed supported inputs and resource-limit failures fail profiling rather than
 return a successful partial inventory. See the
 [lockprofile README](../src/ecosystem/lockprofile/README.md) and
-[structuredlock README](../src/ecosystem/structuredlock/README.md) for exact
+[structuredlock README](../src/ecosystem/structuredlock/README.md),
+[extralock README](../src/ecosystem/extralock/README.md),
+[manifestextra README](../src/ecosystem/manifestextra/README.md), and
+[nativeprofile README](../src/ecosystem/nativeprofile/README.md) for exact
 format, provenance, traversal, and resource boundaries.
+
+For `manifestextra`, detected Poetry/PDM/uv source configuration anywhere in the
+scanned tree disables Python public-package attribution throughout that scan;
+`.cargo/config` or `.cargo/config.toml` similarly disables default Cargo registry
+attribution. Otherwise manifest registry declarations use public defaults, without
+consulting ambient configuration outside the root. This is conservative inventory,
+not proof of an external installation's source or an environment-specific plan.
+
+`src/repository/coverage.go` adds path-qualified warnings for selected unsupported
+filenames, such as Bun, Mix/Rebar, SBT, Conda, Gradle build scripts, .NET project
+files, `pubspec.yaml`, `deno.json`/`deno.jsonc`, `Podfile`, Julia `Project.toml`,
+`conanfile.*`, and `vcpkg-configuration.json`. It does not read their contents or
+parse their dependencies; supported companion files are assessed separately.
+This bounded, enumerated detector is **not exhaustive format coverage**. No warning
+does not mean that every dependency input was recognized or analyzed.
 
 `src/repository/normalize.go` preserves per-file component provenance, normalizes
 `PyPI` to `pypi`, and forms Maven `group:artifact` and Packagist `vendor/name`
 component names from namespaces. Python names normalize case and runs of `-_.`;
 NuGet and Swift identities are lowercase. Ecosystem usage paths are merged,
-sorted, and deduplicated. Parser PURLs may be versionless (`lockprofile`) or
-versioned (`structuredlock`); `Component.Version` carries the exact version.
+sorted, and deduplicated. Parser PURLs may be versionless (`lockprofile`, `extralock`, `manifestextra`,
+`nativeprofile`) or versioned (`structuredlock`); `Component.Version` carries
+known versions separately and remains empty when unresolved.
 Unknown directness is not proof of transitivity. npm product candidates are
-rebuilt from all normalized npm components, including pnpm/Yarn locks; non-npm
+rebuilt from all normalized npm components, including pnpm/Yarn and Deno npm locks; non-npm
 package-to-CPE mapping is not implemented.
 
 `src/sourceinspect` adds bounded Go AST observations: imports, direct imported
@@ -127,7 +163,11 @@ and inspection errors fail profiling rather than establish absence. Declarations
 are not a deployed inventory, and source observations are not proof of CVE
 feature usage, execution, reachability, or attack conditions. Non-npm local range
 comparison is not implemented; exact OSV provider evidence is separate (below).
-Language detection by extension does not imply source analysis for that language.
+Extension-based language detection now also recognizes Dart, Elixir, Erlang,
+Scala, Clojure/ClojureScript, Haskell, OCaml, R, Julia, Perl, and Lua. It counts
+recognized files, not analyzed source semantics or dependency coverage. Source
+inspection remains Go-only; expanded language detection does not implement
+other-language source analysis or complete Levels 3–5, which remain `unknown`.
 
 ### NVD client and normalization
 
@@ -234,7 +274,7 @@ third-party service, not part of offline profiling.
 
 | Profile ecosystem | OSV ecosystem / package identity |
 | --- | --- |
-| `npm` (npm/pnpm/Yarn) | `npm`, including full scoped names |
+| `npm` (npm/pnpm/Yarn/Deno npm records) | `npm`, including full scoped names |
 | `Go` / `go` | `Go`, module path |
 | `pypi` / `PyPI` | `PyPI`, normalized package name |
 | `maven` / `Maven` | `Maven`, `group:artifact` |
@@ -242,11 +282,17 @@ third-party service, not part of offline profiling.
 | `packagist` / `Packagist` | `Packagist`, `vendor/name` |
 | `gem` / `RubyGems` | `RubyGems`, gem name |
 | `nuget` / `NuGet` | `NuGet`, package name (lowercase in the profile) |
+| `Pub` | `Pub`, package name |
+| `CocoaPods` | `CocoaPods`, retained pod/subspec name |
 
-Swift has no OSV mapping and remains inventory-only. Mapping an ecosystem does
-not make every declaration queryable: `versions.IsPinned` accepts conservative
-concrete-version subsets, never resolves ranges, and retains version spelling
-for queries and exact evidence matching.
+Swift, CRAN, JSR, Conan, vcpkg, and Julia have no OSV mapping and remain
+inventory-only. In particular, Deno npm records use the npm mapping, but JSR
+records do not. Mapping an ecosystem does not make every declaration queryable:
+`versions.IsPinned` accepts conservative concrete-version subsets, never resolves
+ranges, and retains version spelling for queries and exact evidence matching.
+Pub accepts complete SemVer without a leading `v`; CocoaPods additionally accepts
+numeric versions with other segment counts, also without a leading `v`.
+These mappings enable bounded exact-version queries, not full advisory coverage.
 
 One client/cache is shared across CVEs for the run: at most 100 unique pinned
 package queries and 8 MiB of cached response bodies. Unsupported/unresolved
@@ -414,16 +460,18 @@ the documented subsets, not complete ecosystem resolution or exploitability.
 | npm | `package.json`, `package-lock.json` v2/v3 direct/transitive locked versions, npm version evaluation, CPE product candidates. | Proof that a product alias identifies the same vulnerable package; deployed inventory. |
 | pnpm / Yarn | Supported pnpm v6/v9 and Yarn classic/Berry lock subsets feed normalized npm identities and version matching. | Unsupported protocols/formats, full resolution, complete dependency graphs. |
 | Go dependencies | Static `go.mod` require declarations and warnings. | Module/workspace/build resolution, `go.sum` inventory, local Go vulnerability-version evaluation, package-to-CPE mapping. |
-| Python | Conservative requirements declarations and exact pins; Pipenv, Poetry, and uv lock subsets. | Dependency/marker/include resolution, `pyproject.toml` inventory, local range comparison, package-to-CPE mapping. |
+| Python | Conservative requirements and PEP 621/Poetry `pyproject.toml` declarations; Pipenv, Poetry, uv, and PDM lock subsets. | Dependency/marker/include resolution, dynamic/build-system dependencies, PEP 735/PDM development groups, lock reconciliation, local range comparison, package-to-CPE mapping. |
 | Java / Kotlin | Static direct POM dependencies and Gradle locked dependencies. | Effective POM/BOM/parent resolution, Gradle build-script evaluation, full graphs. |
-| Rust / PHP / Ruby / .NET | Cargo, Composer, public RubyGems GEM sections, and NuGet lock subsets. | Full package-manager resolution, unsupported sources/formats, non-npm local range comparison. |
+| Rust / PHP / Ruby / .NET | Cargo manifest/lock subsets, Composer locks, public RubyGems GEM sections, NuGet locks, `packages.config`, and schema-3 assets inventory. | Full package-manager resolution, workspace inheritance, unsupported sources/formats, inferred NuGet feed provenance, non-npm local range comparison. |
+| Pub / Deno / CocoaPods | Supported Pub, Deno npm/JSR, and public CocoaPods lock subsets; Pub, npm, and CocoaPods OSV mappings. | Full resolution, private/unsupported sources, JSR OSV mapping, verified artifact integrity. |
+| CRAN / Conan / vcpkg / Julia | Supported static inventory subsets; vcpkg versions remain unknown. | OSV mappings/advisory coverage, full resolution, verified registry provenance; source identities are not asserted OSV identities. |
 | Swift | Supported registry pins in resolved files, inventory-only. | Source-control pin identities, OSV mapping, full Swift resolution. |
-| Other inventory | Language detection where recognized. | Container/infrastructure profilers and full multi-language analysis. |
+| Detection / coverage warnings | Expanded extension-based language detection and bounded warnings for selected unsupported dependency filenames. | Exhaustive format detection, dependency parsing of warned files, container/infrastructure profilers, full multi-language source analysis. |
 | Source inspection | Bounded Go AST imports, direct imported selector calls, literal `net/http.HandleFunc` routes, locations and limitations. | Type-aware/CVE-specific feature usage, other-language source analysis, complete symbol resolution. |
 | Reachability / taint | Levels 3–5 explicitly report `unknown`. | Call graphs, entry-point paths, interprocedural data flow, taint analysis, sanitization or attacker-input tracking. |
 | Production environment | Explicit missing-information reporting. | Deployed versions, production build/configuration, feature flags, authentication/exposure, runtime reachability, attacker prerequisites, exploitability proof. |
 | NVD | CLI latest-at-command-start retrieval, at most 200 unique CVEs via multiple bounded requests; separate registration-window all-page workflow. | Snapshot consistency guarantees, CLI modification-window ingestion, persistent cursors. |
-| OSV | Opt-in CVE-linked queries across eight mapped ecosystems, exact queried-version affected evidence, bounded per-run cache, external disclosure and provenance. | Swift mapping, unresolved-package matching, inferred NVD ranges, non-npm local range comparison, persistent cache, exploitability proof. |
+| OSV | Opt-in CVE-linked queries across ten mapped ecosystems (including Pub and CocoaPods), exact queried-version affected evidence, bounded per-run cache, external disclosure and provenance. | Swift/CRAN/JSR/Conan/vcpkg/Julia mappings, complete advisory coverage, unresolved-package matching, inferred NVD ranges, non-npm local range comparison, persistent cache, exploitability proof. |
 | Assessment / LLM / feed | Backend-owned Evidence and applicability report, Screening, conditional Deep Analysis, JSON feed output. | LLM authority to change backend facts, completed Levels 3–5, overall exploitability/risk scoring. |
 | Orchestration / storage | Bounded command-line run and callable registration-window workflow core. | Registration HTTP-handler integration, application-service orchestration, SQLite/other result persistence, recurring scheduler. |
 

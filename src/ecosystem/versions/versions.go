@@ -52,10 +52,10 @@ func (Versions) Evaluate(ecosystem, installed string, constraints []domain.Versi
 }
 
 // OSVEcosystem maps supported profiler names to OSV ecosystem identifiers.
-// Swift is intentionally unsupported; no ecosystem mapping is assumed.
+// Inventory-only ecosystems are intentionally unsupported; no mapping is assumed.
 func OSVEcosystem(ecosystem string) (string, bool) {
 	switch ecosystem {
-	case "npm", "Maven", "Packagist", "NuGet", "RubyGems", "crates.io":
+	case "npm", "Maven", "Packagist", "NuGet", "RubyGems", "crates.io", "Pub", "CocoaPods":
 		return ecosystem, true
 	case "maven":
 		return "Maven", true
@@ -83,7 +83,9 @@ var (
 	packagist = regexp.MustCompile(`(?i)^v?[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-(alpha|a|beta|b|RC|patch|p)[.-]?[0-9]*)?$`)
 	nuget     = regexp.MustCompile(`^[0-9]+(\.[0-9]+){0,3}(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
 	ruby      = regexp.MustCompile(`^[0-9]+(\.[0-9A-Za-z]+)*(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$`)
-	wildcard  = regexp.MustCompile(`(?i)(^|[.-])x($|[.-])`)
+	// CocoaPods also uses concrete numeric versions with other segment counts.
+	podNumeric = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*$`)
+	wildcard   = regexp.MustCompile(`(?i)(^|[.-])x($|[.-])`)
 )
 
 // IsPinned recognizes a conservative subset of concrete registry versions.
@@ -95,8 +97,13 @@ func IsPinned(ecosystem, version string) bool {
 		return false
 	}
 	switch eco {
-	case "npm", "Go", "crates.io":
-		if eco == "Go" && !strings.HasPrefix(version, "v") || eco == "crates.io" && strings.HasPrefix(version, "v") {
+	case "CocoaPods":
+		if podNumeric.MatchString(version) {
+			return true
+		}
+		fallthrough
+	case "npm", "Go", "crates.io", "Pub":
+		if eco == "Go" && !strings.HasPrefix(version, "v") || (eco == "crates.io" || eco == "Pub" || eco == "CocoaPods") && strings.HasPrefix(version, "v") {
 			return false
 		}
 		if !semver.MatchString(version) {

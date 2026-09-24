@@ -26,6 +26,8 @@ var ecosystemCases = []struct{ eco, canonical, name, version string }{
 	{"PyPI", "PyPI", "example", "1.2.3rc1"},
 	{"pypi", "PyPI", "example", "1.2.3"},
 	{"npm", "npm", "@example/package", "1.2.3+build"},
+	{"Pub", "Pub", "http", "1.2.3+build"},
+	{"CocoaPods", "CocoaPods", "Public/Core", "1.2.3.4"},
 	{"Go", "Go", "example.org/module", "v1.2.3"},
 	{"go", "Go", "example.org/module", "v1.2.3"},
 }
