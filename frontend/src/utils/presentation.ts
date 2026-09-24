@@ -1,3 +1,4 @@
+import { parsePublicHttpsUrl } from './publicUrl'
 import type { Exploitation, Severity } from '../types/feed'
 
 export const severityLabels: Record<Severity, string> = {
@@ -16,10 +17,6 @@ export function shortDate(value: string) { return dateFormat.format(new Date(val
 export function fullDate(value: string) { return fullDateFormat.format(new Date(value)) }
 
 // Future API responses are untrusted too. Do not render non-HTTPS reference links.
-export function safeExternalUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value)
-    if (url.protocol !== 'https:' || url.username || url.password) return undefined
-    return url.href
-  } catch { return undefined }
+export function safeExternalUrl(value: unknown): string | undefined {
+  return parsePublicHttpsUrl(value)?.href
 }

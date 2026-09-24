@@ -1,3 +1,4 @@
+import { MAX_URL_LENGTH, isWellFormedText } from '../utils/publicUrl'
 import { mockFeed, mockGeneratedAt, repositoryFeedFor } from '../mocks/feed'
 import type {
   FeedItem,
@@ -29,9 +30,10 @@ const severityOrder: Record<Severity, number> = {
 }
 
 /** Validates input only; this does not establish that a repository is public or exists. */
-export function parseRepositoryUrl(input: string): RepositoryUrlResult {
-  const value = input.trim()
+export function parseRepositoryUrl(input: unknown): RepositoryUrlResult {
   const invalid = (message: string): RepositoryUrlResult => ({ ok: false, message })
+  if (typeof input !== 'string' || input.length > MAX_URL_LENGTH || !isWellFormedText(input) || /[\u0000-\u001f\u007f]/u.test(input)) return invalid('2,048文字以内の正しいリポジトリURLを入力してください。')
+  const value = input.trim()
 
   if (!value) return invalid('公開GitHubリポジトリのURLを入力してください。')
   if (/[\s\\%?#]/u.test(value)) {
@@ -66,7 +68,7 @@ export function parseRepositoryUrl(input: string): RepositoryUrlResult {
   }
 
   const label = `${owner}/${repository}`
-  return { ok: true, url: `https://github.com/${label}`, label }
+  return { ok: true, url: `https://github.com/${label.toLowerCase()}`, label }
 }
 
 function abortError(): DOMException {

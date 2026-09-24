@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createWorkspaceStore } from './workspace'
 import { mockFeed } from '../mocks/feed'
 import {
   createReportLifecycle,
@@ -155,4 +156,24 @@ describe('report tracking and revisions', () => {
     expect(historicalReports[1]!.cvss).toBeNull()
     expect(historicalReports[1]!.relevance!.score).toBeUndefined()
   })
+})
+
+it('keeps long accepted advisory IDs usable for saving, comments and review state', () => {
+  const input = 'CVE-2026-' + '1'.repeat(200)
+  const parsed = normalizeReportInput(input)
+  expect(parsed.ok).toBe(true)
+  const item = createSubmittedReport(input, 'cve', now)
+  expect(item.advisoryId).toBe(input)
+  expect(item.id.length).toBeLessThanOrEqual(200)
+  expect(item.id).toBe(createSubmittedReport(input.toLowerCase(), 'cve', now).id)
+  expect(item.id).not.toBe(createSubmittedReport(input + '2', 'cve', now).id)
+  const store = createWorkspaceStore({ local: null, session: null })
+  store.toggleSaved(item.id)
+  store.addComment(item.id, '確認中')
+  const repository = store.addRepository('https://github.com/example/project')
+  if (!repository.ok) throw new Error(repository.message)
+  store.setReviewStatus(repository.repository.id, item.id, 'investigating')
+  expect(store.snapshot().savedIds).toEqual([item.id])
+  expect(store.snapshot().comments[0]?.articleId).toBe(item.id)
+  expect(store.getReviewStatus(repository.repository.id, item.id)).toBe('investigating')
 })

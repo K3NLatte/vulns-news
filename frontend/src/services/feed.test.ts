@@ -15,7 +15,7 @@ const load = (overrides: Partial<FeedQuery> = {}) => getFeed({ ...allFeed, ...ov
 describe('parseRepositoryUrl', () => {
   it.each([
     ['https://github.com/example/project', 'https://github.com/example/project', 'example/project'],
-    ['  https://github.com/Example/project.git/  ', 'https://github.com/Example/project', 'Example/project'],
+    ['  https://github.com/Example/project.git/  ', 'https://github.com/example/project', 'Example/project'],
     ['HTTPS://GITHUB.COM/example/project/', 'https://github.com/example/project', 'example/project'],
     ['https://github.com:443/example/project', 'https://github.com/example/project', 'example/project'],
     ['https://github.com/example-org/project_name.js', 'https://github.com/example-org/project_name.js', 'example-org/project_name.js'],
@@ -286,4 +286,10 @@ describe('getFeed', () => {
     expect(result.items.every((item) => item.sources.every((source) => source.kind === 'reference' && source.url.startsWith('https://cwe.mitre.org/')))).toBe(true)
     expect(result.items.some((item) => item.cvss === null)).toBe(true)
   })
+})
+
+it('rejects oversized and malformed repository values without throwing', () => {
+  for (const input of [null, {}, ['https://github.com/example/project'], 'https://github.com/example/' + 'x'.repeat(2048), '\u0000https://github.com/example/project', '\ud800']) {
+    expect(parseRepositoryUrl(input).ok).toBe(false)
+  }
 })
