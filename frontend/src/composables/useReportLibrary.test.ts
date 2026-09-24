@@ -234,3 +234,158 @@ describe('report library interaction scenarios', () => {
     expect(library.jobs.value).toHaveLength(1)
   })
 })
+
+describe('report state validation and queue limits', () => {
+  it('rejects a sixth request without adding an orphan report or lifecycle', () => {
+    const { library } = mountLibrary()
+    for (let index = 0; index < 5; index += 1) library.submit('CVE-2026-' + (12340 + index))
+    const reportIds = library.catalog.value.map(item => item.id)
+    const lifecycleIds = Object.keys(library.lifecycles.value)
+
+    library.submit('CVE-2026-99999')
+
+    expect(library.jobs.value).toHaveLength(5)
+    expect(library.submissionError.value).toContain('5件')
+    expect(library.catalog.value.map(item => item.id)).toEqual(reportIds)
+    expect(Object.keys(library.lifecycles.value)).toEqual(lifecycleIds)
+  })
+
+  it('does not expose repository results when the scan was rejected for capacity', () => {
+    const { library } = mountLibrary()
+    for (let index = 0; index < 5; index += 1) library.submit('CVE-2026-' + (12340 + index))
+
+    library.scanRepository('https://github.com/example/frontend')
+
+    expect(library.scanFor('https://github.com/example/frontend')).toBeUndefined()
+    expect(library.repositoryItems('https://github.com/example/frontend')).toEqual([])
+  })
+
+  it('enforces the active-job limit when retrying and allows retry after a slot is released', () => {
+    const { library } = mountLibrary()
+    library.submit('CVE-2026-90000')
+    const failed = library.jobs.value[0]!
+    failed.status = 'failed'
+    for (let index = 0; index < 5; index += 1) library.submit('CVE-2026-' + (12340 + index))
+
+    library.retry(failed.id)
+    expect(failed.status).toBe('failed')
+    expect(library.submissionError.value).toContain('5件')
+    library.cancel(library.jobs.value[0]!.id)
+    library.retry(failed.id)
+    expect(failed.status).toBe('queued')
+    expect(library.submissionError.value).toBe('')
+  })
+
+  it('does not retry a failed job while a newer request for the same report is active', () => {
+    const { library } = mountLibrary()
+    library.submit('CVE-2026-12345')
+    const failed = library.jobs.value[0]!
+    failed.status = 'failed'
+    library.submit('CVE-2026-12345')
+
+    library.retry(failed.id)
+
+    expect(failed.status).toBe('failed')
+    expect(library.jobs.value.filter(job => job.status === 'queued')).toHaveLength(1)
+  })
+
+  it('ignores malformed job records without coercing objects or dropping valid requests', () => {
+    const request = { kind: 'submission', key: 'CVE-2026-12345', status: 'queued', createdAt: new Date().toISOString() }
+    stored.set(storageKey, JSON.stringify({ jobs: [
+      { ...request, kind: { toString: null } },
+      { ...request, status: 'approved' },
+      { ...request, createdAt: '+275760-09-13T00:00:00.000Z' },
+      { ...request, createdAt: '2027-01-01T00:00:00.000Z' },
+      request,
+    ] }))
+
+    const { library } = mountLibrary()
+
+    expect(library.jobs.value).toHaveLength(1)
+    expect(library.jobs.value[0]?.status).toBe('queued')
+    expect(library.storageError.value).toBe('')
+  })
+
+  it('deduplicates and bounds restored active requests before creating report records', () => {
+    const request = { kind: 'submission', status: 'queued', createdAt: new Date().toISOString() }
+    const jobs = Array.from({ length: 6 }, (_, index) => ({ ...request, key: 'CVE-2026-' + (12340 + index) }))
+    stored.set(storageKey, JSON.stringify({ jobs: [...jobs, jobs[0]] }))
+
+    const { library } = mountLibrary()
+
+    expect(library.jobs.value).toHaveLength(5)
+    expect(new Set(library.jobs.value.map(job => job.key)).size).toBe(5)
+    expect(library.catalog.value.filter(item => item.id.startsWith('submitted-'))).toHaveLength(5)
+  })
+
+  it('rejects prototype keys and inconsistent revision histories from stored lifecycles', () => {
+    const initial = mountLibrary()
+    const base = structuredClone(toRaw(initial.library.lifecycles.value['demo-001']!))
+    initial.stop()
+    stored.set(storageKey, JSON.stringify({ lifecycles: Object.fromEntries([
+      ['__proto__', { ...base, articleId: '__proto__' }],
+      ['constructor', { ...base, articleId: 'constructor' }],
+      ['demo-001', { ...base, revision: 999 }],
+    ]) }))
+
+    const { library } = mountLibrary()
+
+    expect(library.lifecycles.value['demo-001']).toEqual(base)
+    expect(Object.hasOwn(library.lifecycles.value, '__proto__')).toBe(false)
+    expect(Object.hasOwn(library.lifecycles.value, 'constructor')).toBe(false)
+    expect(Object.getPrototypeOf(toRaw(library.lifecycles.value))).toBe(Object.prototype)
+  })
+
+  it('does not publish a cancelled request through forged stored publication or lifecycle fields', async () => {
+    const first = mountLibrary()
+    first.library.submit('CVE-2026-12345')
+    const job = first.library.jobs.value[0]!
+    const id = job.reportIds[0]!
+    first.library.cancel(job.id)
+    await nextTick()
+    first.stop()
+    const state = JSON.parse(stored.get(storageKey)!)
+    state.publishedIds = [id]
+    state.lifecycles[id] = { ...state.lifecycles[id], revision: 1, lastAnalyzedAt: new Date().toISOString(), history: [{ revision: 1, analyzedAt: new Date().toISOString(), reason: 'manual' }] }
+    stored.set(storageKey, JSON.stringify(state))
+
+    const { library } = mountLibrary()
+
+    expect(library.jobs.value[0]?.status).toBe('cancelled')
+    expect(library.lifecycles.value[id]?.revision).toBe(0)
+    expect(library.additions('')).toEqual([])
+  })
+
+  it('reports oversized storage and still accepts a fresh request', () => {
+    stored.set(storageKey, ' '.repeat(200_000))
+    const { library } = mountLibrary()
+
+    expect(library.storageError.value).not.toBe('')
+    library.submit('CVE-2026-12345')
+    expect(library.jobs.value).toHaveLength(1)
+  })
+
+  it('resolves repository scan and result lookups with normalized URLs', () => {
+    const { library } = mountLibrary()
+    library.scanRepository('https://github.com/example/frontend.git/')
+
+    expect(library.scanFor('https://github.com/example/frontend/')).toBeDefined()
+    expect(library.repositoryItems('https://github.com/example/frontend.git/').length).toBeGreaterThan(0)
+  })
+  it('does not turn an unfinished cancelled request into a report through tracking renewal', async () => {
+    const { library } = mountLibrary()
+    library.submit('CVE-2026-12345')
+    const job = library.jobs.value[0]!
+    const reportId = job.reportIds[0]!
+    library.cancel(job.id)
+    library.renew(reportId)
+    vi.setSystemTime('2026-09-26T03:00:00.000Z')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(job.status).toBe('cancelled')
+    expect(library.lifecycles.value[reportId]?.revision).toBe(0)
+    expect(library.reports.value.some(report => report.item.id === reportId)).toBe(false)
+  })
+
+})
