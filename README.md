@@ -1,26 +1,17 @@
 # vulns-news
 
-## 開発環境
+## NVDのCVE取得ライブラリ
 
-[Nix](https://nixos.org/) の開発シェルに Go、Node.js、pnpm、SQLite のコマンドを用意します。Vue は JavaScript のライブラリなので、プロジェクトを作成するときに pnpm で追加します。
+`nvd` パッケージは、NIST（米国国立標準技術研究所）のNVD（脆弱性データベース）から、公開日時が新しいCVE（脆弱性識別子）と説明文を取得します。APIキーは不要です。
 
-```sh
-nix develop path:.
+```go
+import (
+    "context"
+    "vulns-news/nvd"
+)
+
+client := nvd.NewClient()
+items, err := client.Fetch(context.Background(), 10)
 ```
 
-開発シェル内で各コマンドを確認できます。
-
-```sh
-go version
-node --version
-pnpm --version
-sqlite3 --version
-```
-
-Vue のアプリを作成する場合は、開発シェル内で次を実行します。
-
-```sh
-pnpm create vue@latest
-```
-
-Nix の設定で `nix-command` と `flakes` が無効の場合は、`nix --extra-experimental-features 'nix-command flakes' develop path:.` を使用してください。
+同じGoモジュール内では `vulns-news/nvd` をインポートして使用します。`Fetch` は指定した件数を新しい順に返します。英語の説明文があれば優先します。複数回の取得が必要な場合は、リクエスト間に6秒の間隔を置きます。
