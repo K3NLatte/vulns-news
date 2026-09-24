@@ -85,6 +85,7 @@ test('multiple repositories preserve canonical identity and enable relevance sor
   await page.getByLabel('表示するリポジトリ').selectOption({ label: 'Example/Frontend' })
   await page.getByLabel('並び順').selectOption('relevance')
   await expect(articles(page).getByRole('button', { name: /DEMO-2026-003/ }).first()).toBeVisible()
+  await page.getByRole('button', { name: '過去情報も検索', exact: true }).click()
   await expect(page.locator('.repository-history-status')).toContainText('検索済み')
   await expect(page.locator('#article-history-002')).toBeVisible()
   await page.locator('#article-history-002').click()
@@ -165,7 +166,7 @@ test('analysis rejects unsafe input, deduplicates active requests and preserves 
 
 test('malformed history is ignored and new valid work remains possible', async ({ page }) => {
   await page.addInitScript(() => {
-    sessionStorage.setItem('vulns-news-report-lab-v1', JSON.stringify({
+    sessionStorage.setItem('vulns-news-report-lab-v2:guest', JSON.stringify({
       jobs: [{ kind: { toString: null }, key: 'CVE-2026-12345', createdAt: new Date().toISOString(), status: 'completed' }],
       publishedIds: ['constructor', '__proto__'], lifecycles: { constructor: {} },
     }))

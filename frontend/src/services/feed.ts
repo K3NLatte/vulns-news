@@ -94,7 +94,9 @@ function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-function relevanceScore(score: number | undefined): number {
+function relevanceScore(item: FeedItem): number {
+  if (item.repositoryAnalysis === 'pending' || item.assessment === 'unverified') return Number.NEGATIVE_INFINITY
+  const score = item.relevance?.score
   return score !== undefined && Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY
 }
 
@@ -152,8 +154,8 @@ export function filterFeedItems(source: FeedItem[], query: FeedQuery): FeedItem[
   })
   const items = [...filtered].sort((a, b) => {
     if (query.scope === 'repository' && query.sort === 'relevance') {
-      const aScore = relevanceScore(a.relevance?.score)
-      const bScore = relevanceScore(b.relevance?.score)
+      const aScore = relevanceScore(a)
+      const bScore = relevanceScore(b)
       if (aScore !== bScore) return bScore - aScore
     }
     if (query.sort === 'severity') {
