@@ -2,24 +2,25 @@ package main
 
 import "net/http"
 
-// newRouter はリクエストの振り分け先を登録する。
-// 登録順は処理の実行順ではなく、調査全体の流れは Orchestrator が制御する。
+// newRouter registers the repository-first API surface. CVEs are fetched by
+// scheduled backend jobs and are never selected by an API user.
 func newRouter() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// 初期画面に表示する、収集済みの CVE 一覧を取得する。
-	mux.HandleFunc("GET /api/cves", handleListCVEs)
+	// Register a GitHub URL and start profiling its pinned commit.
+	mux.HandleFunc("POST /api/repositories", handleCreateRepository)
 
-	// CVE・Repository・ref を指定して調査を開始し、analysis_id を返す。
-	mux.HandleFunc("POST /api/analyses", handleCreateAnalysis)
+	// Return repository identity, profile revision, and profiling status.
+	mux.HandleFunc("GET /api/repositories/{repository_id}", handleGetRepository)
 
-	// analysis_id に対応する調査の進捗・レポートを取得する。
-	mux.HandleFunc("GET /api/analyses/{analysis_id}", handleGetAnalysis)
+	// Resolve the configured ref again and rebuild the profile when it changed.
+	mux.HandleFunc("POST /api/repositories/{repository_id}/refresh", handleRefreshRepository)
 
-	// Processor を別サービスに分ける場合の、Orchestrator 向けの内部 API。
-	// 収集・解析済みの材料を検証・照合して、最終レポートを作る。
-	// 同じバックエンド内で処理する場合は、このルートを内部関数の呼び出しに置き換えられる。
-	mux.HandleFunc("POST /api/internal/analyses/{analysis_id}/process", handleProcessAnalysis)
+	// Return related and unresolved CVEs assembled as backend feed data.
+	mux.HandleFunc("GET /api/repositories/{repository_id}/feed", handleGetRepositoryFeed)
+
+	// Return progress for repository profiling or daily NVD processing.
+	mux.HandleFunc("GET /api/jobs/{job_id}", handleGetJob)
 
 	return mux
 }
