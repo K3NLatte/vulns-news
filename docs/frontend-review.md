@@ -31,6 +31,10 @@
 
 `pnpm test` と `pnpm build` で取得・保存境界のテスト、VueとTypeScriptの型チェック、ビルドを確認できます。
 
+## 処理・入力検証の修正
+
+基準版との差分は `codex/frontend-mock...codex/frontend-hardening` で確認できます。[診断・改修の記録](frontend-security-review.md) に、再現条件、修正、実行した確認、本実装への持ち越しをまとめています。
+
 ## 本実装を取り込むときの分割候補
 
 チームとレビュー目的を揃えた上で、動作を一つ確認できる単位にします。
