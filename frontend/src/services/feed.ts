@@ -1,5 +1,6 @@
-import { mockFeed, mockGeneratedAt } from '../mocks/feed'
+import { mockFeed, mockGeneratedAt, repositoryFeedFor } from '../mocks/feed'
 import type {
+  FeedItem,
   FeedOptions,
   FeedQuery,
   FeedResult,
@@ -16,6 +17,7 @@ export type {
   FeedScope,
   FeedSort,
   RepositoryUrlResult,
+  ReviewPriority,
   Severity,
 } from '../types/feed'
 
@@ -98,13 +100,15 @@ const normalizeSearch = (text: string) => text.normalize('NFKC').toLocaleLowerCa
 
 /**
  * UI data boundary. Replace this implementation with the agreed backend API later.
- * No repository is fetched or analyzed. Repository scope uses one fixed sample dataset.
+ * No repository is fetched or analyzed. Repository scope selects a deterministic local profile.
  */
 export async function getFeed(query: FeedQuery, options: FeedOptions = {}): Promise<FeedResult> {
   if (options.signal?.aborted) throw abortError()
+  let repositoryLabel = ''
   if (query.scope === 'repository') {
     const repository = parseRepositoryUrl(query.repositoryUrl ?? '')
     if (!repository.ok) throw new Error(repository.message)
+    repositoryLabel = repository.label
   }
 
   const requestedDelay = options.delayMs ?? 280
@@ -117,10 +121,23 @@ export async function getFeed(query: FeedQuery, options: FeedOptions = {}): Prom
 
   const scoped = options.scenario === 'empty'
     ? []
-    : mockFeed.filter((item) => query.scope === 'all' || item.relevance !== undefined)
+    : query.scope === 'repository' ? repositoryFeedFor(repositoryLabel) : mockFeed
+  const items = filterFeedItems(scoped, query)
+
+  return {
+    // Each response is independent: view state must never mutate the shared fixtures.
+    items: structuredClone(items),
+    total: scoped.length,
+    matchedTotal: items.length,
+    generatedAt: mockGeneratedAt,
+  }
+}
+
+/** Shared query rules for acquired reports and the existing feed. */
+export function filterFeedItems(source: FeedItem[], query: FeedQuery): FeedItem[] {
   const terms = normalizeSearch(query.search).trim().split(/\s+/u).filter(Boolean)
-  const filtered = scoped.filter((item) => {
-    if (query.severity !== 'all' && item.severity !== query.severity) return false
+  const filtered = source.filter((item) => {
+    if (query.severity !== 'all' && (item.assessment === 'unverified' || item.severity !== query.severity)) return false
     const searchable = normalizeSearch([
       item.advisoryId,
       item.title,
@@ -138,17 +155,11 @@ export async function getFeed(query: FeedQuery, options: FeedOptions = {}): Prom
       if (aScore !== bScore) return bScore - aScore
     }
     if (query.sort === 'severity') {
-      const severityDifference = severityOrder[a.severity] - severityOrder[b.severity]
+      const severityDifference = (a.assessment === 'unverified' ? 4 : severityOrder[a.severity]) - (b.assessment === 'unverified' ? 4 : severityOrder[b.severity])
       if (severityDifference) return severityDifference
     }
     return b.publishedAt.localeCompare(a.publishedAt) || a.id.localeCompare(b.id)
   })
 
-  return {
-    // Each response is independent: view state must never mutate the shared fixtures.
-    items: structuredClone(items),
-    total: scoped.length,
-    matchedTotal: filtered.length,
-    generatedAt: mockGeneratedAt,
-  }
+  return items
 }

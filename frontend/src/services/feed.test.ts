@@ -209,10 +209,24 @@ describe('getFeed', () => {
     expect(highOnly.matchedTotal).toBe(3)
   })
 
-  it('does not claim to analyze different repositories', async () => {
-    const first = await load({ scope: 'repository', repositoryUrl: 'https://github.com/example/one' })
-    const second = await load({ scope: 'repository', repositoryUrl: 'https://github.com/example/two' })
+  it('returns deterministic results for equivalent repository URLs', async () => {
+    const first = await load({ scope: 'repository', repositoryUrl: 'https://github.com/Example/Frontend.git' })
+    const second = await load({ scope: 'repository', repositoryUrl: 'https://github.com/example/frontend/' })
     expect(first).toEqual(second)
+  })
+
+  it('changes matches and review priorities when the active repository profile changes', async () => {
+    const frontend = await load({ scope: 'repository', repositoryUrl: 'https://github.com/example/frontend', sort: 'relevance' })
+    const backend = await load({ scope: 'repository', repositoryUrl: 'https://github.com/example/backend', sort: 'relevance' })
+    const tooling = await load({ scope: 'repository', repositoryUrl: 'https://github.com/example/tooling', sort: 'relevance' })
+    expect([frontend.total, backend.total, tooling.total]).toEqual([6, 5, 4])
+    expect(frontend.items.map(item => item.id)).not.toEqual(backend.items.map(item => item.id))
+    expect(tooling.items[0]?.id).toBe('demo-008')
+    expect(tooling.items[0]?.severity).toBe('medium')
+    expect(tooling.items[0]?.relevance?.priority).toBe('urgent')
+    expect(frontend.items.find(item => item.id === 'demo-008')?.relevance?.priority).toBe('medium')
+    expect(backend.items.find(item => item.id === 'demo-005')?.relevance?.priority).toBe('high')
+    expect(frontend.items.find(item => item.id === 'demo-005')?.relevance?.priority).toBe('review')
   })
 
   it('requires a valid repository URL before entering repository scope', async () => {
@@ -269,7 +283,7 @@ describe('getFeed', () => {
   it('keeps fictional advisories distinct from general security references', async () => {
     const result = await load()
     expect(result.items.every((item) => item.advisoryId.startsWith('DEMO-'))).toBe(true)
-    expect(result.items.every((item) => item.sources.every((source) => source.kind === 'reference' && source.name.includes('一般参考')))).toBe(true)
+    expect(result.items.every((item) => item.sources.every((source) => source.kind === 'reference' && source.url.startsWith('https://cwe.mitre.org/')))).toBe(true)
     expect(result.items.some((item) => item.cvss === null)).toBe(true)
   })
 })

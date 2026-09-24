@@ -1,277 +1,288 @@
 ---
 name: "vulns-news"
-description: "脆弱性情報を比較し、影響範囲と対応の根拠を確認する日本語UI"
+description: "脆弱性の影響・根拠・対応を確認する日本語フィード"
 colors:
-  accent: "#146b5c"
-  accent-hover: "#0f574a"
-  selected: "#edf6f3"
-  focus: "#0b7767"
-  ink: "#20363f"
-  muted: "#5f7078"
-  subtle: "#687a82"
-  line: "#dce4e7"
+  accent: "#174bd1"
+  accent-hover: "#103aa8"
+  selected: "#f0f4ff"
+  focus: "#174bd1"
+  ink: "#171717"
+  muted: "#575757"
+  line: "#d8d8d8"
   surface: "#fff"
-  workspace: "#f3f6f7"
-  header-bg: "#182d36"
-  header-ink: "#f3f8f8"
-  header-mark: "#a2d9c9"
-  input-border: "#bdcdd3"
-  button-border: "#aabec5"
-  secondary-hover: "#edf3f4"
-  row-hover: "#f4f8f8"
-  analysis-bg: "#f2f5f8"
-  demo-bg: "#e8eef0"
-  demo-ink: "#4c616b"
-  critical-bg: "#f9e7e8"
-  critical-ink: "#a32637"
+  workspace: "#fafafa"
+  neutral-soft: "#f0f0f0"
+  critical: "#a51d32"
+  high-ink: "#933c0a"
   high-bg: "#fff0e5"
-  high-ink: "#a14b12"
-  medium-bg: "#f5f0d9"
-  medium-ink: "#796015"
-  low-bg: "#e8eff9"
-  low-ink: "#3a6191"
+  medium-ink: "#725500"
+  medium-bg: "#fff5cd"
+  low-ink: "#246349"
+  low-bg: "#e7f3ed"
+  severity-ink: "#383838"
+  error: "#a32020"
 typography:
   headline:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
-    fontSize: "27px"
+    fontFamily: "\"Yu Mincho\", \"Hiragino Mincho ProN\", \"Noto Serif JP\", Georgia, serif"
+    fontSize: "2rem"
     fontWeight: 700
     lineHeight: 1.45
-    letterSpacing: "-.035em"
+    letterSpacing: ".02em"
+  headline-feed:
+    fontFamily: "\"Yu Mincho\", \"Hiragino Mincho ProN\", \"Noto Serif JP\", Georgia, serif"
+    fontSize: "1.625rem"
+    fontWeight: 700
+    lineHeight: 1.45
+    letterSpacing: ".02em"
+  title-expanded:
+    fontFamily: "\"Yu Mincho\", \"Hiragino Mincho ProN\", \"Noto Serif JP\", Georgia, serif"
+    fontSize: "2rem"
+    fontWeight: 700
+    lineHeight: 1.6
+    letterSpacing: "-.015em"
   title:
     fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
-    fontSize: "21px"
+    fontSize: "1.5rem"
     fontWeight: 700
     lineHeight: 1.65
-    letterSpacing: "-.025em"
+    letterSpacing: "-.015em"
   title-list:
     fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
-    fontSize: "15px"
+    fontSize: "1.125rem"
     fontWeight: 650
-    lineHeight: 1.75
-    letterSpacing: "-.015em"
+    lineHeight: 1.7
   body:
     fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
-    fontSize: "14px"
+    fontSize: "1rem"
     fontWeight: 400
-    lineHeight: 1.95
+    lineHeight: 1.9
   body-list:
     fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
-    fontSize: "13px"
+    fontSize: "1rem"
     fontWeight: 400
-    lineHeight: 1.85
+    lineHeight: 1.8
+  body-expanded:
+    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
+    fontSize: "1.125rem"
+    fontWeight: 400
+    lineHeight: 1.9
   section-title:
     fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
-    fontSize: "14px"
-    fontWeight: 650
+    fontSize: "1.125rem"
+    fontWeight: 700
     lineHeight: 1.6
   label:
     fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
-    fontSize: "12px"
+    fontSize: ".875rem"
+    fontWeight: 400
+  control:
+    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans JP\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", Meiryo, sans-serif"
+    fontSize: "1rem"
     fontWeight: 600
+    lineHeight: 1.4
   identifier:
     fontFamily: "ui-monospace, \"Cascadia Code\", Consolas, monospace"
-    fontSize: "11px"
+    fontSize: ".875rem"
     fontWeight: 400
 rounded:
-  badge: "3px"
-  small: "4px"
-  control: "6px"
+  control: "3px"
 spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "12px"
-  lg: "16px"
-  xl: "24px"
-  wide: "36px"
+  small: "8px"
+  compact: "12px"
+  medium: "16px"
+  section: "24px"
+  content: "28px"
+  column: "28px"
+  large: "48px"
 components:
   button-primary:
     backgroundColor: "{colors.accent}"
     textColor: "{colors.surface}"
-    typography: "{typography.label}"
+    typography: "{typography.control}"
     rounded: "{rounded.control}"
-    padding: "9px 14px"
+    padding: "10px 18px"
   button-primary-hover:
     backgroundColor: "{colors.accent-hover}"
   button-secondary:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
-    typography: "{typography.label}"
+    typography: "{typography.control}"
     rounded: "{rounded.control}"
-    padding: "9px 14px"
+    padding: "10px 18px"
   button-secondary-hover:
-    backgroundColor: "{colors.secondary-hover}"
+    backgroundColor: "{colors.neutral-soft}"
   button-text:
     textColor: "{colors.accent}"
-    padding: "6px 0"
+    typography: "{typography.label}"
+    padding: "6px 2px"
   button-icon:
     textColor: "{colors.muted}"
-    rounded: "{rounded.small}"
-    width: "30px"
+    rounded: "{rounded.control}"
+    width: "44px"
   input-search:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
     rounded: "{rounded.control}"
-    padding: "9px 36px 9px 39px"
+    padding: "11px 44px"
+  select-control:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.control}"
+    padding: "10px 42px 10px 13px"
   feed-navigation:
     textColor: "{colors.muted}"
-    padding: "13px 0 14px"
+    padding: "14px 0"
   feed-navigation-active:
-    textColor: "{colors.accent}"
+    textColor: "{colors.ink}"
   severity-badge:
-    rounded: "{rounded.badge}"
+    backgroundColor: "{colors.neutral-soft}"
+    textColor: "{colors.severity-ink}"
+    padding: "4px 7px"
+  severity-critical:
+    backgroundColor: "{colors.critical}"
+    textColor: "{colors.surface}"
+  severity-high:
+    backgroundColor: "{colors.high-bg}"
+    textColor: "{colors.high-ink}"
+  severity-medium:
+    backgroundColor: "{colors.medium-bg}"
+    textColor: "{colors.medium-ink}"
+  severity-low:
+    backgroundColor: "{colors.low-bg}"
+    textColor: "{colors.low-ink}"
+  analysis-status:
+    textColor: "{colors.ink}"
+    padding: "12px 0"
+  analysis-pending:
+    backgroundColor: "{colors.medium-bg}"
+    textColor: "{colors.medium-ink}"
     padding: "3px 6px"
   feed-row:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
-    padding: "20px 22px 17px"
+    padding: "24px 24px 10px"
   feed-row-selected:
     backgroundColor: "{colors.selected}"
-  analysis-card:
-    backgroundColor: "{colors.analysis-bg}"
+  impact-panel:
+    backgroundColor: "{colors.selected}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.control}"
-    padding: "17px 18px"
-  input-repository:
+    padding: "20px"
+  account-dialog:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.control}"
-    padding: "10px 12px"
+    padding: "28px"
+    width: "min(480px, calc(100% - 32px))"
 ---
 
 # Design System: vulns-news
 
 ## Overview
 
-**Creative North Star: "根拠を確認できる情報面"**
+**Creative North Star: "余白と文字で読み分ける"**
 
-セキュリティ従事者が、脆弱性情報の重要度・悪用状況・依存関係との関連性を読み分けるための日本語UI。識別子や数値は比較しやすく、説明文は読み進めやすく配置する。落ち着いた背景と白い情報面に、操作と選択を示す緑を絞って使う。
+白・黒・グレーを土台に、青を操作・選択へ使う。重要度と対応優先度には赤・橙・黄・緑の意味色を使い、文字ラベルを併記する。日本語本文はサンセリフ、ページ見出しと独立記事の見出しは明朝系。罫線と文字の強弱で情報を整理し、内容を読み比べられる画面にする。
 
-日本語UI、読みやすさ、単純な保守性、架空データと実データの区別はPRODUCT.mdの確定要件である。色、書体構成、余白、一覧と詳細の構成は、任されたローカル実装で採用した暫定判断であり、ユーザーが個別に指定・承認したブランド仕様ではない。本書は2026-09-24時点のfrontend/src/styles.cssとVueコンポーネントから抽出した実装記録とする。
+この配色と、カンザキイオリ／amazarashiのモチーフを余白・文字へ抽象化する方針はユーザー指定。歌詞、ロゴ、写真、既存レイアウトは使わない。具体的な値は2026-09-25時点のfrontend/src/styles.css、useFeedPanes.tsとVueコンポーネントから記録したもので、今後も実装と一緒に更新する。
 
-数値とトークンは現行実装の基準であり、本文は使い分けを説明する。更新時はCSSとコンポーネントの変更を同時に反映する。最初のフィード画面の構成理由は、ローカルのsurface briefに置く。
+方向選定の記録はローカルのsurface briefに置く（候補キーc9431a34、候補5）。探索候補よりユーザー指定を優先する。機能範囲とモックの実装境界はPRODUCT.md、README、統合文書で扱う。
 
 **Key Characteristics:**
 
-- 比較と読解を支える、罫線と余白による情報整理。
-- 操作の緑と重要度の色を区別し、文字ラベルを併記。
-- 一覧の要約と詳細本文で密度を変え、狭い画面では読む面を切り替える。
+- 左の一覧はページ全体でスクロールし、右の詳細だけが画面に追従する。
+- 本文・タイトル・補助情報を役割別の大きさで区別。
+- CVSS、関連度、対応優先度、分析の確度を別々に示す。
 
 ## Colors
 
-冷たい明るい背景に、濃い文字と抑えた緑のアクセントを組み合わせる。以下の名称は実装上の用途を表し、ブランドカラー名として承認されたものではない。値はfrontmatterを参照する。
+値はfrontmatterを基準とする。通常の本文はink、補助情報はmuted、記事面はsurface、ページ背景はworkspace、区切りはlineを使う。
 
-### Primary
+- **Primary**：accentは主要操作・リンク・選択の下線。hoverはaccent-hover、選択行と関連性の説明面はselected。focusはキーボード位置を示す。
+- **Neutral**：本文・補助文字・記事面・罫線の階層は白・黒・グレーで作る。意味を持たない装飾色は増やさない。
+- **意味色**：CVSSの緊急と対応優先度の最優先はcritical、高はhigh、中はmedium、低はlow。緊急は赤い面と白文字、それ以外は淡い背景と濃い文字を組み合わせる。要確認はグレー、分析の未確定は黄。入力・保存エラーと削除操作にはerrorを使う。
 
-- **操作の緑（accent / accent-hover）**：主要ボタン、リンク、選択された表示対象。hoverは同系色を暗くする。
-- **選択の淡い緑（selected）**：選択中の一覧行とリポジトリ関連性の説明面。
-- **フォーカスの緑（focus）**：キーボード操作の位置を示す輪郭。
+**意味を分ける** CVSS、対応優先度、分析の未確定は、それぞれ明示的なラベルで示す。同じ意味色を使っていても、同じ尺度として扱わない。青い選択面は重要度の代わりにしない。
 
-### Neutral
-
-- **本文と補助文字（ink / muted / subtle）**：本文、要約や補助情報、小さな注記の順に使い分ける。
-- **白い情報面と作業背景（surface / workspace）**：記事の面とその外側を分ける。
-- **区切りと入力枠（line / input-border / button-border）**：記事の境界、入力欄、補助ボタンを整理する。
-- **濃いヘッダー（header-bg / header-ink / header-mark）**：短い製品名とモックの説明への入口。
-- **補助面（analysis-bg / demo-bg / demo-ink）**：AI分析サンプルと画面全体のデモ説明を読み分ける。
-- **操作前後の中間色（secondary-hover / row-hover）**：補助ボタンや未選択行へのhover。
-
-### 重要度の意味色
-
-critical、high、medium、lowは、各々の淡い背景と濃い文字色を組み合わせる。バッジには文字ラベルと、ある場合はCVSS値を添える。悪用観測はcritical-inkと文字・アイコンで示すが、重要度とは別の項目である。
-
-**意味を混ぜない** 選択・操作にはaccent系、重要度には四段階のラベル付き配色を使う。赤い重要度を、リポジトリとの関連性やAIの確度の代わりに使わない。
-
-sidecarの8段階tonalRampは、抽出色から生成したプレビュー用の補助情報である。現在のCSSに8段階の色階調が実装されているという意味ではない。
+sidecarのtonalRampは抽出色から作るプレビュー用階調で、製品CSSに追加する色トークンではない。
 
 ## Typography
 
-UIと日本語本文はシステムのサンセリフを使い、外部フォント配信には依存しない。等幅書体は識別子、パッケージ名、バージョン、リポジトリURLに限定する。日付、CVSS、件数には等幅数字を使う。
+基準は16px。本文・操作はOSの日本語サンセリフ、紙面の見出しは明朝系、識別子・バージョン・コードは等幅書体。外部フォント配信は使わない。
 
-| 役割 | トークン | 使い方 |
+| 役割 | 実装上の大きさ | 行高・用途 |
 | --- | --- | --- |
-| ページ見出し | headline | 画面の目的を短く示す。 |
-| 記事詳細見出し | title | 長文は自然に折り返す。 |
-| 一覧タイトル | title-list | 要約より強く、重要度バッジより読みやすくする。 |
-| 詳細本文 | body | 要約の基準。行送りを広く取る。 |
-| 一覧要約 | body-list | 最大2行で省略し、全文は詳細に置く。 |
-| 詳細内の区切り | section-title | 対応、関連性、推定、参考情報を分ける。 |
-| 操作ラベル | label | 主・補助ボタンの基準。 |
-| 識別子 | identifier | UI本文から区別する。 |
+| 一般ページ見出し | 32px、599px以下は28px | 1.45、明朝系 |
+| PCのフィード見出し | 26px | 幅1000px以上で操作域をコンパクトにする |
+| 一覧タイトル | 18px | 1.7、太さ650 |
+| 詳細列の見出し | 24px | 1.65 |
+| 独立記事の見出し | 32px、599px以下は26px | 1.6、狭い画面は1.7 |
+| 一覧要約 | 16px | 1.8、最大2行 |
+| 詳細本文・対応・分析 | 16px | 主に1.9 |
+| 独立記事の冒頭要約 | 18px、599px以下は16px | 1.9 |
+| 入力・主要ボタン | 16px | 入力を補助文字サイズへ縮めない |
+| 日付・ラベル・識別子 | 14px | 内容の主従を示す |
+| 事実欄の値 | 16px、599px以下は15px | 1.7 |
 
-一覧要約は13px、詳細要約は14pxを採用している。対応手順とAI分析本文も14pxで、行高は手順・分析要約が1.9、分析の根拠・関連性の説明が1.85。これらは最終CSSから確認した値である。注記やメタデータには10〜12pxを使用するが、説明本文の代わりにはしない。
+詳細要約の行長は最大70ch。日付、CVSS、件数は等幅数字。文字サイズはCSSでrem、レイアウトは主にpxで指定する。
 
-狭い画面ではページ見出しを23px、詳細見出しを20pxにする。一覧要約13px・詳細本文14pxは維持する。一覧タイトルの行高は1.8になる。これらはresponsive layerの差分であり、frontmatterの基本値を置き換えない。
+**役割から文字を選ぶ** 本文と入力は16px、一覧タイトルは18px、補助情報は14pxを基本とする。全文の読解に必要な情報を補助ラベルの密度へ落とさない。
 
-**本文の可読性** 一覧要約にはbody-list、詳細の要約にはbodyを使う。対応手順・関連性の説明・AI分析の本文も詳細と同じ文字サイズを保ち、情報量を理由に注記サイズへ縮めない。
+比較資料として、[GOV.UKのType scale](https://design-system.service.gov.uk/styles/type-scale/)は本文19px・小さい本文16pxと画面幅別の見出しを定義し、[CarbonのType sets](https://carbondesignsystem.com/elements/typography/type-sets/)は用途に応じた14pxと16pxの基準を用意している。本画面の16/18/14pxは日本語の読解と操作密度に合わせた採用値であり、全UIに共通する「最低16px」という規則ではない。
 
 ## Layout
 
-内容領域は中央寄せで、最大幅は1600px。通常の左右余白は36px、1100px以下で24px、599px以下で16pxになる。画面全体の見出し・操作域と、記事を読む領域を分ける。
+内容の最大幅は1600px。PCのフィードは左右余白32px・上下16px、一覧と詳細は1:1.08の2列で列間28px。記事ページは最大960px、設定ページは最大1000px。
 
-現在のフィードは一覧と詳細の2列で、比率は1:1.05。1100px以下では1:1.08。左右の面は独立してスクロールする。高さは画面高から上部を引き、最低565pxを確保する。記事行は密度を抑え、詳細は横方向に広めの余白を取る。この比率や高さは現行フィードの実装値であり、将来の全画面に強制する基準ではない。
+左の一覧は高さ制限も内部スクロールも持たず、ページ全体と一緒に流れる。ヘッダーと検索・フィルターなどの上部操作域も固定しない。右の詳細だけが上端16pxで追従する。操作行と記事ヘッダー（ID・タイトル・CVSS）は表示したままにし、その下の本文だけを縦にスクロールする。詳細全体はflexの縦積みでoverflow:hidden、本文はflex:1とoverflow-y:autoを持つ。
 
-899px以下では1面表示に切り替え、一覧で選択すると詳細を表示する。「一覧に戻る」で選択行へフォーカスを戻す。読込中・0件・エラー・リポジトリ未指定は一覧領域を1面で使う。599px以下ではリポジトリ入力と実行ボタンを縦に並べる。最小対応幅は320px。
+右の高さはuseFeedPanesで画面内に残る高さから測る。最小280pxを確保し、上部操作域が画面外へ流れるにつれて伸び、追従位置では画面高から上下16pxを引いた高さになる。左のリスト長をこの高さへ揃えない。
 
-余白トークンはCSSで繰り返し使われる値を抽出したもので、CSS変数による統一スケールが既にあるわけではない。新しい要素は既存の近い役割に合わせ、独立した余白体系を増やさない。
+| 条件 | 変更 |
+| --- | --- |
+| 幅1000px以上かつ高さ500px × 文字拡大率以上 | 一覧と、本文だけが独立スクロールする詳細を並べる。 |
+| 1199px以下 | 検索を全幅にし、フィルターを次の行へ。 |
+| 幅1000px未満、または必要な画面高に満たない場合 | 一覧を1列にし、記事選択で記事ページへ移る。 |
+| 999px以下 | 記事ページの最大幅800px。 |
+| 599px以下 | 左右余白16px。設定・入力・操作群は折り返す。事実欄や関連性の配置を簡略化。 |
+
+最小幅は320px。余白の抽出値はfrontmatterのspacingにまとめる。CSSに余白変数が既にあるという意味ではない。
+
+**一覧と詳細のスクロールを分ける** 左は自然な文書スクロール、右は操作と記事ヘッダーを残して本文だけをスクロールする。両方を同じ高さの箱に入れない。並列表示に必要な画面高は標準16pxで500pxとし、ルート文字サイズの拡大率に応じて増やす。
 
 ## Elevation & Depth
 
-情報面はフラット。内容の所属は背景の差、細い境界線、余白で示す。状態を試すポップオーバーも境界線付きの白い面で、影は付けていない。強い奥行きや装飾画像は、現在のUIでは使っていない。
+影は使わない。情報の区切りには通常1pxの罫線、一覧・詳細・設定セクションの起点には2pxの濃い線を使う。淡い青の面は関連性と選択を示す。アカウントダイアログだけ、黒45%のbackdropで背後の操作を一時停止する。
 
-**影に頼らない区切り** 通常面、選択面、推定を示す面は、背景色・罫線・余白で区別する。現行実装にbox-shadowはない。
-
-操作の色と枠色の変化は150ms ease-out。読込中のスケルトンのみ1.5秒の緩やかな明暗変化がある。prefers-reduced-motionではtransitionとanimationを停止する。面の選択に移動や拡大のアニメーションは使わない。
+操作の色・背景・枠色は120ms ease。読込中のスケルトンは1.5秒の明暗変化。prefers-reduced-motionではいずれも停止する。
 
 ## Shapes
 
-入力欄、主要なボタン、記事領域、説明面にはcontrolの小さな角丸を使う。アイコンボタンはsmall、重要度バッジはbadge。記事行そのものは四角く、行間の1px罫線で連続した一覧として見せる。丸い形はバッジの点など、小さな状態記号に限る。
-
-フォーカスは通常2pxの輪郭と3pxの外側余白で示す。一覧行では輪郭を内側へ入れ、ヘッダーでは明るいheader-markを使う。詳細見出しへのプログラムによるフォーカスは、操作を中断しないため輪郭を表示しない。
+ボタンと入力欄は小さな角丸（control）。記事行、意味ラベル、関連性の面は四角く保つ。主要・補助・アイコンボタンは最小44px、入力とselectは最小46px。フォーカスは2pxの青い輪郭と3pxの外側余白で示し、一覧行では輪郭を内側へ置く。
 
 ## Components
 
-### ボタン
+- **ヘッダーとナビゲーション**：製品名はGeorgia、newsの下線に青。フィード対象はリンクとaria-currentで表示し、保存・設定・アカウントへ移動できる。faviconは白地に黒のセリフ付きVと青い下線を描いた独自SVG。
+- **検索・select**：検索はラベルとクリア操作を持つ。selectはネイティブの意味とキーボード操作を保ち、装飾の矢印だけ別要素にする。
+- **記事行**：CVSS、識別子、日付、タイトル、2行要約、製品を整理。リポジトリ表示では「分析済み／未確定」、関連度、対応優先度を分ける。記事選択、保存、ページ表示は別の操作。
+- **詳細・記事ページ**：対象・影響版・修正版を定義リストで示し、関連性、対応状況、手順、分析、参照情報を分ける。独立記事ではコメントを表示する。
+- **設定とアカウント**：設定は通常ページ。複数リポジトリを追加・選択・削除し、削除は行内で確認する。アカウントにはnative dialogを使い、Escと閉じた後のフォーカス復帰に対応する。
+- **コメントとPoC**：本文は文字列で描画。コメントは改行と長文の折り返しを保ち、投稿・削除・エラーを示す。PoCは折りたたみ可能な静的テキストで、実行操作を置かない。
+- **解析状態**：待ち、構成確認、照合、関連性確認、記事分析、完了、失敗を段階表示する。結果は「すべて／分析済み／未確定」で絞り込む。未確定には黄色い説明を置き、関連度を未確定と表示し、対応手順・分析本文を隠す。既に得られた記事は処理中・失敗時も読める。件数は判明している値だけを表示し、状態欄とフィルターで重複させない。
+- **状態**：読込中、0件、取得エラー、リポジトリ未指定、保存0件を区別し、再試行・条件解除・設定への導線を用意する。入力・保存エラーには文字で理由を示す。
+- **MVP**：同じ部品で閲覧、検索、重要度・関連度順、単一リポジトリ入力、記事詳細を提供する。保存・設定・ログイン・コメントなどを非表示にし、別のデザイン体系は作らない。
 
-主要ボタンは緑の面と白文字、補助ボタンは白い面と輪郭。最小高は40px。hoverで背景を変え、focus-visibleで輪郭を出す。テキストボタンは緑の文字とhover時の下線、アイコンボタンは透明な面とhover時の淡い背景を使う。アイコン単独には読み上げ用ラベルを付ける。無効状態はカーソルと不透明度で表す。
-
-### 入力とフィルター
-
-検索欄は左に検索アイコン、入力後は右にクリア操作を置く。重要度と並び順はラベル付きのネイティブselect。通常の最小高は39px、狭い画面の検索欄は42px。リポジトリURLは等幅書体とし、無効値には赤い枠と具体的なエラーテキストを併記する。URLを外部送信しないモックであることを入力欄の近くにも書く。
-
-### 表示対象ナビゲーション
-
-一般とリポジトリ向けの表示は、下線・緑文字・太さ・aria-pressedで選択を示す。ルート間移動ではなく、同じフィードの表示対象を切り替えるボタンである。
-
-### 重要度バッジ
-
-淡い面、濃い文字、小さな点を組み合わせる。CVSS値を併記する場合は細い区切り線を入れる。スコアのないデータを架空の数値で埋めない。
-
-### 記事行と詳細
-
-記事行は行全体がボタンで、重要度・識別子・公開日、タイトル、最大2行の要約、製品と悪用状況または関連性を縦に並べる。選択は淡い緑の面とaria-currentで示す。選択時は詳細見出しへフォーカスを移し、モバイルでは読む面を表示する。
-
-詳細は要約、対象・影響・修正・公開日の定義リスト、対応、推定、参考資料の順に整理する。識別子のコピーには成功・失敗のフィードバックを出す。外部資料には新しいタブで開くことを知らせる。
-
-### 推定・関連性・デモ表示
-
-AI分析のサンプルはanalysis-bgの面にまとめ、想定の確度と折りたたみ可能な根拠を添える。関連性の面には淡い緑を使い、依存構成がサンプルであることを記す。全体のデモ帯に加えて、記事・AI分析・依存構成の表示箇所にもサンプルであることを明示する。
-
-### 読込中・0件・エラー・未指定
-
-読込中は5行のスケルトンと読み上げ用の状態。0件は条件解除、エラーは再読込、未指定はサンプルURLを試す操作へつなぐ。結果件数はaria-liveで通知する。常時表示する成功メトリクスなど、未実装の状態を推測させる要素は追加しない。
+モックの範囲や保存方式の説明はレビュー文書に集約する。製品画面では利用者の判断に必要な説明とエラーだけを表示する。
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** 重要度、悪用状況、関連性、AIの確度を別の情報として表示し、色と文字ラベルを併用する。
-- **Do** 一覧要約と詳細本文の役割を保ち、長い識別子・バージョン・日本語タイトルが折り返せるようにする。
-- **Do** 架空の記事、AI分析のサンプル、サンプル依存構成をそれぞれの表示箇所でも明示する。
-- **Do** キーボードフォーカス、読込中・0件・エラー・未指定状態、一覧に戻る操作を新しい画面でも確認する。
+- **Do** 白・黒・グレーと青を基調とし、余白と見出しの強弱で読む順序を作る。
+- **Do** 狭い画面でも本文16pxと入力16pxを維持し、長いタイトル・URL・コードを折り返す。
+- **Do** 0件・読込中・エラー・保存失敗を、具体的な操作へつながる状態として表示する。
 
 ### Don't:
 
-- **Don't** 暫定パレットやレイアウトを、ユーザー承認済みのブランド仕様として扱わない。
-- **Don't** 本文を識別子用の等幅書体に置き換えたり、注記と同じサイズに縮めたりしない。
-- **Don't** 重要度の色だけで状態を伝えたり、選択状態に警告色を流用したりしない。
-- **Don't** 未接続のLLMや未実装の保存・認証・解析を、動作中の機能として見せない。
+- **Don't** 左の一覧を固定高の箱に入れたり、一覧に独立スクロールを設けたりしない。右の閲覧面の高さを左へ適用しない。
+- **Don't** モック注意書き、キャッチコピー、開発者向け操作を製品画面に散在させない。
+- **Don't** 指定された作品の歌詞・ロゴ・写真・画面構成を流用しない。
+- **Don't** CVSS、関連度、対応優先度、分析の確度を同じ尺度として扱わない。

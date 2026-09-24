@@ -1,0 +1,236 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { effectScope, nextTick, toRaw } from 'vue'
+import { historicalReports } from '../services/reports'
+import { useReportLibrary } from './useReportLibrary'
+
+const storageKey = 'vulns-news-report-lab-v1'
+const scopes: ReturnType<typeof effectScope>[] = []
+let stored: Map<string, string>
+
+function mountLibrary() {
+  const scope = effectScope()
+  scopes.push(scope)
+  const library = scope.run(() => useReportLibrary())!
+  return { library, stop: () => scope.stop() }
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  vi.setSystemTime('2026-09-25T03:00:00.000Z')
+  stored = new Map()
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+    clear: () => stored.clear(),
+  })
+  vi.stubGlobal('document', { visibilityState: 'visible' })
+})
+
+afterEach(() => {
+  for (const scope of scopes.splice(0)) scope.stop()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
+describe('report library interaction scenarios', () => {
+  it('normalizes repeated CVE input and keeps one active request', () => {
+    const { library } = mountLibrary()
+
+    library.submit(' cve-2026-12345 ')
+    library.submit('CVE-2026-12345')
+
+    expect(library.jobs.value).toHaveLength(1)
+    expect(library.catalog.value.filter(item => item.advisoryId === 'CVE-2026-12345')).toHaveLength(1)
+    expect(library.jobs.value[0]?.status).toBe('queued')
+  })
+
+  it('deduplicates a CVE and its recognized advisory URL while analysis is pending', () => {
+    const { library } = mountLibrary()
+
+    library.submit('CVE-2026-12345')
+    library.submit('https://nvd.nist.gov/vuln/detail/CVE-2026-12345')
+
+    expect(library.jobs.value).toHaveLength(1)
+    expect(library.jobs.value[0]?.newCount).toBe(1)
+  })
+
+  it('reuses an existing historical report immediately without silently renewing tracking', () => {
+    const { library } = mountLibrary()
+    const existing = historicalReports[0]!
+    const before = structuredClone(toRaw(library.lifecycles.value[existing.id]!))
+
+    library.submit(existing.sources[0]!.url)
+
+    expect(library.jobs.value[0]).toMatchObject({
+      status: 'completed',
+      reusedCount: 1,
+      newCount: 0,
+      reportIds: [existing.id],
+    })
+    expect(library.lifecycles.value[existing.id]).toEqual(before)
+  })
+
+  it('shows reusable historical results during a repository scan, then adds the new report', async () => {
+    const { library } = mountLibrary()
+    const repository = 'https://github.com/example/frontend'
+
+    const knownIds = library.knownRepositoryItems(repository).map(item => item.id)
+    const reusableIds = [...knownIds, 'history-001']
+    library.scanRepository(repository)
+    expect(library.scanFor(repository)).toMatchObject({ reusedCount: reusableIds.length, newCount: 1, status: 'queued' })
+    expect(library.repositoryItems(repository).map(item => item.id)).toEqual(reusableIds)
+
+    await vi.advanceTimersByTimeAsync(6500)
+
+    expect(library.scanFor(repository)?.status).toBe('completed')
+    const results = library.repositoryItems(repository)
+    expect(results.map(item => item.id)).toEqual([...reusableIds, 'history-002'])
+    expect(library.lifecycles.value['history-001']?.revision).toBe(1)
+    expect(library.lifecycles.value['history-002']?.revision).toBe(1)
+    expect(results.find(item => item.id === 'history-002')?.repositoryAnalysis).toBe('pending')
+  })
+
+  it('deduplicates normalized repository URLs before queueing work', () => {
+    const { library } = mountLibrary()
+
+    library.scanRepository('https://github.com/example/frontend')
+    library.scanRepository('https://github.com/example/frontend.git/')
+
+    expect(library.jobs.value).toHaveLength(1)
+    expect(library.jobs.value[0]?.key).toBe('https://github.com/example/frontend')
+  })
+
+  it('does not automatically analyze an expired report and manual analysis does not renew its deadline', async () => {
+    const { library } = mountLibrary()
+    const reportId = 'history-001'
+    const deadline = library.lifecycles.value[reportId]!.trackingUntil
+    vi.setSystemTime('2026-09-26T03:00:00.000Z')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(library.lifecycles.value[reportId]?.revision).toBe(1)
+
+    library.reanalyze(reportId)
+    await vi.advanceTimersByTimeAsync(6500)
+
+    expect(library.lifecycles.value[reportId]).toMatchObject({
+      revision: 2,
+      trackingUntil: deadline,
+      nextCheckAt: null,
+    })
+    expect(library.lifecycles.value[reportId]?.history.at(-1)?.reason).toBe('manual')
+  })
+
+  it('renews tracking only on the separate renewal action without fabricating a new analysis', () => {
+    const { library } = mountLibrary()
+    const reportId = 'history-001'
+    const analyzedAt = library.lifecycles.value[reportId]!.lastAnalyzedAt
+
+    library.renew(reportId)
+
+    expect(library.lifecycles.value[reportId]).toMatchObject({
+      revision: 1,
+      lastAnalyzedAt: analyzedAt,
+      trackingUntil: '2026-10-02T03:00:00.000Z',
+      nextCheckAt: '2026-09-26T03:00:00.000Z',
+    })
+  })
+
+  it('reconstructs completed submitted reports and publication after a session reload', async () => {
+    const first = mountLibrary()
+    first.library.submit('CVE-2026-12345')
+    await vi.advanceTimersByTimeAsync(6500)
+    const reportId = first.library.jobs.value[0]!.reportIds[0]!
+    first.library.publish()
+    await nextTick()
+    first.stop()
+
+    const { library } = mountLibrary()
+
+    expect(library.jobs.value[0]?.status).toBe('completed')
+    expect(library.lifecycles.value[reportId]?.revision).toBe(1)
+    expect(library.reports.value.some(report => report.item.id === reportId)).toBe(true)
+    expect(library.additions('').map(item => item.id)).toContain(reportId)
+    expect(library.publicationQueue.value).not.toContain(reportId)
+  })
+
+  it('preserves completed scheduled revisions across a session reload', async () => {
+    const first = mountLibrary()
+    await vi.advanceTimersByTimeAsync(1000)
+    const lifecycle = first.library.lifecycles.value['demo-001']!
+    expect(lifecycle.revision).toBeGreaterThan(1)
+    const expected = { revision: lifecycle.revision, lastAnalyzedAt: lifecycle.lastAnalyzedAt, trackingUntil: lifecycle.trackingUntil }
+    await nextTick()
+    first.stop()
+
+    const { library } = mountLibrary()
+
+    expect(library.lifecycles.value['demo-001']).toMatchObject(expected)
+  })
+
+  it('keeps cancelled requests cancelled after time elapses and after a reload', async () => {
+    const first = mountLibrary()
+    first.library.submit('CVE-2026-12345')
+    const job = first.library.jobs.value[0]!
+    first.library.cancel(job.id)
+    await vi.advanceTimersByTimeAsync(10000)
+    await nextTick()
+    expect(job.status).toBe('cancelled')
+    expect(first.library.publicationQueue.value).toEqual([])
+    first.stop()
+
+    const { library } = mountLibrary()
+    expect(library.jobs.value[0]?.status).toBe('cancelled')
+    expect(library.lifecycles.value[job.reportIds[0]!]?.revision).toBe(0)
+  })
+
+  it('keeps the next scheduled check after renewal, update and reload without creating an extra revision', async () => {
+    const first = mountLibrary()
+    const reportId = 'history-001'
+    first.library.renew(reportId)
+    vi.setSystemTime('2026-09-26T03:00:00.000Z')
+    await vi.advanceTimersByTimeAsync(1000)
+    const lifecycle = first.library.lifecycles.value[reportId]!
+    const expected = { ...lifecycle, history: lifecycle.history.map(entry => ({ ...entry })) }
+    expect(expected.revision).toBe(2)
+    expect(expected.nextCheckAt).toBe('2026-09-27T03:00:01.000Z')
+    await nextTick()
+    first.stop()
+
+    const { library } = mountLibrary()
+
+    expect(library.lifecycles.value[reportId]).toEqual(expected)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(library.lifecycles.value[reportId]).toEqual(expected)
+  })
+
+  it('still reuses existing reports when all five analysis slots are occupied', () => {
+    const { library } = mountLibrary()
+    for (let index = 0; index < 5; index += 1) library.submit('CVE-2026-' + (12340 + index))
+
+    library.submit(historicalReports[0]!.sources[0]!.url)
+
+    expect(library.submissionError.value).toBe('')
+    expect(library.jobs.value).toHaveLength(6)
+    expect(library.jobs.value[0]).toMatchObject({ status: 'completed', reusedCount: 1, newCount: 0 })
+  })
+
+  it('releases its interval on scope disposal', () => {
+    const { stop } = mountLibrary()
+    expect(vi.getTimerCount()).toBe(1)
+
+    stop()
+
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('recovers from malformed session state with a usable fresh request form', () => {
+    stored.set(storageKey, '{not json')
+    const { library } = mountLibrary()
+
+    expect(library.storageError.value).not.toBe('')
+    library.submit('CVE-2026-12345')
+
+    expect(library.jobs.value).toHaveLength(1)
+  })
+})
