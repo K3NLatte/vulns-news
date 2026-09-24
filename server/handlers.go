@@ -1,37 +1,66 @@
 package main
 
-import "net/http"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log"
+	"net/http"
+	"strconv"
 
-// 各ハンドラーはたたき台。処理を実装するまでは 501 Not Implemented を返す。
+	"vulns-news/src/nvd"
+)
 
-// handleListCVEs は収集済みの CVE 一覧を返す。
+/*
+handleListCVEs は NVD から最新の CVE 一覧を取得して返す。
+*/
+const (
+	minCVEListLimit     = 1
+	defaultCVEListLimit = 10
+	maxCVEListLimit     = 100
+)
+
 func handleListCVEs(w http.ResponseWriter, r *http.Request) {
-	// 入力: ListCVEsQuery（クエリ） / 出力: ListCVEsResponse。
-	// TODO: 保存済みの CVE 情報を取得し、一覧の JSON を返す。
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	limit := defaultCVEListLimit
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < minCVEListLimit || parsed > maxCVEListLimit {
+			http.Error(w, "limit は1以上100以下の整数を指定してください", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
+
+	cves, err := nvd.NewClient().Fetch(r.Context(), limit)
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, context.DeadlineExceeded) {
+			status = http.StatusGatewayTimeout
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if err := json.NewEncoder(w).Encode(cves); err != nil {
+		log.Printf("CVE一覧のレスポンス書き込みに失敗しました: %v", err)
+	}
 }
 
 // handleCreateAnalysis は新しい調査を作成し、Orchestrator に実行を依頼する。
 func handleCreateAnalysis(w http.ResponseWriter, r *http.Request) {
-	// 入力: CreateAnalysisRequest / 出力: CreateAnalysisResponse。
-	// TODO: cve_id・repository_id・ref を検証し、調査を登録する。
-	// TODO: analysis_id と status: queued を JSON で返す。
+
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
 // handleGetAnalysis は指定された調査の進捗・レポートを返す。
 func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
-	// 入力: URL の analysis_id / 出力: AnalysisResponse。
-	// TODO: r.PathValue("analysis_id") に対応する調査を取得する。
-	// TODO: analysis_id・status・report・errors を JSON で返す。
+
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
 // handleProcessAnalysis は収集・解析済みの材料を Processor に渡す。
 func handleProcessAnalysis(w http.ResponseWriter, r *http.Request) {
-	// 入力: URL の analysis_id と ProcessAnalysisRequest / 出力: AnalysisResponse。
-	// TODO: r.PathValue("analysis_id") で対象の調査を特定する。
-	// TODO: cve_analysis・repository_scan・evidence を受け取り、Processor に渡す。
-	// TODO: 最終レポートと調査の状態を保存する。
+
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
