@@ -23,3 +23,9 @@ export interface ReportLifecycle {
   history: ReportRevision[]
   origin: ReportOrigin
 }
+
+/** Minimal local bookmark; report facts are reconstructed, never trusted from storage. */
+export interface SavedReportReference {
+  input: string
+  createdAt: string
+}

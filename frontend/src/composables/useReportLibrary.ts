@@ -4,7 +4,7 @@ import { parseRepositoryUrl } from '../services/feed'
 import { createReportLifecycle, createSubmittedReport, findExistingReport, historicalReports, isTrackingActive, normalizeReportInput, renewReportTracking, updateReportLifecycle } from '../services/reports'
 import type { FeedItem } from '../types/feed'
 import type { InvestigationJob } from '../types/investigation'
-import type { ReportLifecycle } from '../types/reports'
+import type { ReportLifecycle, SavedReportReference } from '../types/reports'
 import { isRecord, isStoredDate, MAX_ACTIVE_REPORT_JOBS, MAX_REPORT_JOBS, MAX_REPORT_SESSION_LENGTH, parseStoredJobs, parseStoredLifecycle } from '../services/reportSession'
 
 const storageKey = 'vulns-news-report-lab-v1'
@@ -27,6 +27,17 @@ export function useReportLibrary() {
   const catalog = computed(() => [...mockFeed, ...historicalReports, periodicReport, ...created.value])
   for (const item of catalog.value) lifecycles.value[item.id] = createReportLifecycle(item, now.value)
   const reports = computed(() => catalog.value.filter(item => (lifecycles.value[item.id]?.revision > 0 && item.id !== periodicReport.id) || publishedIds.value.includes(item.id)).map(item => ({ item, lifecycle: lifecycles.value[item.id]! })))
+
+  function referenceFor(id: string): SavedReportReference | undefined {
+    const item = created.value.find(item => item.id === id)
+    if (!item) return undefined
+    const job = jobs.value.find(job => {
+      if (job.kind !== 'submission' || !job.reportIds.includes(id)) return false
+      const parsed = normalizeReportInput(job.key)
+      return parsed.ok && createSubmittedReport(parsed.key, parsed.kind, item.publishedAt).id === id
+    })
+    return job ? { input: job.key, createdAt: item.publishedAt } : undefined
+  }
 
   function resolveSubmission(key: string, at: string) {
     const parsed = normalizeReportInput(key)
@@ -162,6 +173,12 @@ export function useReportLibrary() {
       if (raw.length >= MAX_REPORT_SESSION_LENGTH) throw new Error('Session exceeds the storage limit')
       const state: unknown = JSON.parse(raw)
       if (!isRecord(state)) throw new Error('Invalid report session')
+      // A reload is not a new publication. Keep the local edition's timestamp.
+      if (isStoredDate(state.periodicPublishedAt) && state.periodicPublishedAt <= now.value) {
+        periodicReport.publishedAt = state.periodicPublishedAt
+        periodicReport.updatedAt = state.periodicPublishedAt
+        lifecycles.value[periodicReport.id] = createReportLifecycle(periodicReport, now.value)
+      }
       for (const row of parseStoredJobs(state.jobs, now.value).reverse()) {
         const job = prepareJob(row.kind, row.key, row.createdAt)
         if (!job) continue
@@ -194,7 +211,7 @@ export function useReportLibrary() {
   watch([jobs, publishedIds, renewals, lifecycles], () => {
     try {
       const savedLifecycles = Object.fromEntries(Object.entries(lifecycles.value).map(([id, lifecycle]) => [id, { ...lifecycle, history: lifecycle.history.slice(-MAX_REPORT_JOBS) }]))
-      const raw = JSON.stringify({ jobs: jobs.value, publishedIds: publishedIds.value, renewals: renewals.value, lifecycles: savedLifecycles })
+      const raw = JSON.stringify({ periodicPublishedAt: periodicReport.publishedAt, jobs: jobs.value, publishedIds: publishedIds.value, renewals: renewals.value, lifecycles: savedLifecycles })
       if (raw.length >= MAX_REPORT_SESSION_LENGTH) throw new Error('Session exceeds the storage limit')
       sessionStorage.setItem(storageKey, raw)
     } catch { storageError.value = '解析履歴を保存できません。ページを閉じると今回の履歴が失われます。' }
@@ -219,7 +236,7 @@ export function useReportLibrary() {
     }
   }, 1000)
   onScopeDispose(() => clearInterval(timer))
-  return { now, jobs, catalog, lifecycles, reports, publicationQueue, submissionError, storageError, submit, reanalyze, renew, retry, cancel, publish, scanRepository, scanFor, additions, activeJobFor, repositoryItems,
+  return { now, jobs, catalog, referenceFor, lifecycles, reports, publicationQueue, submissionError, storageError, submit, reanalyze, renew, retry, cancel, publish, scanRepository, scanFor, additions, activeJobFor, repositoryItems,
     knownRepositoryItems: (url: string) => { const parsed = parseRepositoryUrl(url); return parsed.ok ? repositoryFeedFor(parsed.label) : [] },
   }
 }

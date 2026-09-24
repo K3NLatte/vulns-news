@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { reactive } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { createWorkspaceStore, type WorkspaceStorage } from './workspace'
+import { createSubmittedReport, getSavedReportItems } from './reports'
 import type { ReviewStatus } from '../types/workspace'
 
 class MemoryStorage {
@@ -373,4 +375,113 @@ describe('workspace persistence', () => {
       expect(restored.snapshot().storageError).toContain('形式')
     },
   )
+})
+
+it('preserves a newer profile save from another tab instead of overwriting it with stale state', () => {
+  const storage = makeStorage()
+  const first = createWorkspaceStore(storage)
+  first.login('Alice')
+  first.toggleSaved('original')
+  const second = createWorkspaceStore({ local: storage.local, session: new MemoryStorage() })
+  second.login('Alice')
+  first.toggleSaved('from-first-tab')
+  const newerSave = storage.local.getItem(profileKey('alice'))
+
+  second.toggleSaved('from-second-tab')
+
+  expect(storage.local.getItem(profileKey('alice'))).toBe(newerSave)
+  expect(second.snapshot().savedIds).toEqual(['original', 'from-second-tab'])
+  expect(second.snapshot().storageError).toContain('別のタブ')
+  expect(createWorkspaceStore(storage).snapshot().savedIds).toEqual(['original', 'from-first-tab'])
+})
+
+it('preserves newer profile data when re-entering a cached profile changed in another tab', () => {
+  const storage = makeStorage()
+  const first = createWorkspaceStore(storage)
+  first.login('Alice')
+  first.toggleSaved('original')
+  first.logout()
+  const second = createWorkspaceStore({ local: storage.local, session: new MemoryStorage() })
+  second.login('Alice')
+  second.toggleSaved('other-tab-save')
+  const newerSave = storage.local.getItem(profileKey('alice'))
+
+  first.login('Alice')
+
+  expect(storage.local.getItem(profileKey('alice'))).toBe(newerSave)
+  expect(first.snapshot().storageError).toContain('別のタブ')
+})
+
+
+describe('saved submission references', () => {
+  const reference = { input: 'CVE-2026-12345', createdAt: '2026-09-25T03:00:00.000Z' }
+  const article = createSubmittedReport(reference.input, 'cve', reference.createdAt)
+
+  it('restores saved submitted content in a new session without trusting serialized report facts', () => {
+    const storage = makeStorage()
+    const first = createWorkspaceStore(storage)
+    first.login('Alice')
+    first.toggleSaved(article.id, reference)
+    const otherSession = createWorkspaceStore({ local: storage.local, session: new MemoryStorage() })
+    otherSession.login('Alice')
+    const restored = getSavedReportItems(otherSession.snapshot().savedReportReferences)
+    expect(restored).toHaveLength(1)
+    expect(restored[0]).toMatchObject({ id: article.id, cvss: null, assessment: 'unverified', repositoryAnalysis: 'pending' })
+    expect(otherSession.snapshot().savedIds).toEqual([article.id])
+  })
+
+  it('isolates reference bookmarks between profiles and removes them with the bookmark', () => {
+    const store = createWorkspaceStore(makeStorage())
+    store.login('Alice')
+    store.toggleSaved(article.id, reference)
+    store.logout()
+    expect(store.snapshot().savedReportReferences).toEqual({})
+    store.login('Bob')
+    expect(store.snapshot().savedReportReferences).toEqual({})
+    store.login('Alice')
+    expect(store.snapshot().savedReportReferences[article.id]).toEqual(reference)
+    store.toggleSaved(article.id)
+    expect(store.snapshot().savedReportReferences).toEqual({})
+    expect(store.snapshot().savedIds).toEqual([])
+  })
+
+  it('transfers guest references into a new profile and exposes them through the composable', () => {
+    const workspace = useWorkspace(makeStorage())
+    workspace.toggleSaved(article.id, reference)
+    workspace.login('Alice')
+    expect(workspace.savedReportReferences.value[article.id]).toEqual(reference)
+    workspace.logout()
+    expect(workspace.savedReportReferences.value).toEqual({})
+  })
+
+  it('rejects a mismatched reference before mutating saved IDs', () => {
+    const store = createWorkspaceStore(makeStorage())
+    expect(() => store.toggleSaved('demo-001', reference)).toThrow('記事の情報')
+    expect(store.snapshot().savedIds).toEqual([])
+    expect(() => store.toggleSaved(article.id, { ...reference, createdAt: 'invalid' })).toThrow('記事の情報')
+    expect(() => store.toggleSaved(article.id, { ...reference, input: 'javascript:alert(1)' })).toThrow('記事の情報')
+    expect(store.snapshot().savedReportReferences).toEqual({})
+  })
+
+  it('rejects forged stored references unrelated to saved IDs', () => {
+    const storage = makeStorage()
+    const store = createWorkspaceStore(storage)
+    store.toggleSaved(article.id, reference)
+    const state = JSON.parse(storage.session.getItem(guestKey)!)
+    state.data.savedReportReferences['submitted-CVE-2026-99999'] = { ...reference, input: 'CVE-2026-99999' }
+    storage.session.setItem(guestKey, JSON.stringify(state))
+    const restored = createWorkspaceStore(storage)
+    expect(restored.snapshot().storageError).toContain('形式')
+    expect(restored.snapshot().savedIds).toEqual([])
+  })
+})
+
+
+it('accepts a reactive saved reference without leaking the caller object into persisted state', () => {
+  const store = createWorkspaceStore(makeStorage())
+  const reference = reactive({ input: 'CVE-2026-12345', createdAt: '2026-09-25T03:00:00.000Z' })
+  const item = createSubmittedReport(reference.input, 'cve', reference.createdAt)
+  store.toggleSaved(item.id, reference)
+  reference.input = 'CVE-2026-99999'
+  expect(store.snapshot().savedReportReferences[item.id]?.input).toBe('CVE-2026-12345')
 })

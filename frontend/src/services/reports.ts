@@ -1,10 +1,12 @@
 import { MAX_URL_LENGTH, isWellFormedText, parsePublicHttpsUrl } from '../utils/publicUrl'
+import { isStoredDate } from './reportSession'
 import type { FeedItem } from '../types/feed'
 import type {
   ReportInputKind,
   ReportInputResult,
   ReportLifecycle,
   ReportOrigin,
+  SavedReportReference,
 } from '../types/reports'
 
 export type { ReportInputKind, ReportInputResult, ReportLifecycle, ReportOrigin } from '../types/reports'
@@ -215,3 +217,21 @@ export const historicalReports: FeedItem[] = [
     sources: [{ name: 'SampleHTTP アドバイザリ', url: 'https://example.org/advisories/demo-2023-014', kind: 'vendor' }],
   },
 ]
+
+/** Rehydrate only a validated submission reference, never persisted report prose. */
+export function restoreSavedReport(id: string, value: unknown): FeedItem | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const reference = value as Record<string, unknown>
+  if (!isStoredDate(reference.createdAt)) return undefined
+  const parsed = normalizeReportInput(reference.input)
+  if (!parsed.ok || parsed.key !== reference.input) return undefined
+  const item = createSubmittedReport(parsed.key, parsed.kind, reference.createdAt)
+  return item.id === id ? item : undefined
+}
+
+export function getSavedReportItems(references: Record<string, SavedReportReference>): FeedItem[] {
+  return Object.entries(references).flatMap(([id, reference]) => {
+    const item = restoreSavedReport(id, reference)
+    return item ? [item] : []
+  })
+}

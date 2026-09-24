@@ -1,4 +1,6 @@
 import { parseRepositoryUrl } from './feed'
+import { restoreSavedReport } from './reports'
+import type { SavedReportReference } from '../types/reports'
 import type {
   AddRepositoryResult, FeedComment, ReviewStatus, WorkspaceData,
   WorkspaceSnapshot, WorkspaceUser,
@@ -9,13 +11,13 @@ export interface WorkspaceStorage {
   local: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null
 }
 
-type StoredValue = { kind: 'missing' } | { kind: 'failed' } | { kind: 'value'; value: unknown }
+type StoredValue = { kind: 'missing' } | { kind: 'failed' } | { kind: 'value'; value: unknown; raw: string }
 const maxStoredLength = 2_000_000
 const guestKey = 'vulns-news:workspace:guest:v1'
 const activeKey = 'vulns-news:workspace:active:v1'
 const profileKey = (name: string) => `vulns-news:workspace:profile:v1:${encodeURIComponent(name)}`
 const statuses: ReviewStatus[] = ['unreviewed', 'investigating', 'resolved', 'not-affected']
-const emptyData = (): WorkspaceData => ({ repositories: [], activeRepositoryId: null, savedIds: [], comments: [], reviewStatuses: {} })
+const emptyData = (): WorkspaceData => ({ repositories: [], activeRepositoryId: null, savedIds: [], savedReportReferences: {}, comments: [], reviewStatuses: {} })
 const copy = <T>(value: T): T => structuredClone(value)
 const normalizedName = (name: string) => name.normalize('NFKC').toLocaleLowerCase('ja-JP')
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -58,6 +60,13 @@ function validateData(value: unknown, authorId: string): value is WorkspaceData 
     || new Set(repositories.map(repository => repository.url.toLowerCase())).size !== repositories.length) return false
   if (value.activeRepositoryId !== null && !repositories.some(repository => repository.id === value.activeRepositoryId)) return false
   if (!value.savedIds.every(isId) || new Set(value.savedIds).size !== value.savedIds.length) return false
+  // Version 1 saves made before submission bookmarks have no reference field.
+  if (value.savedReportReferences !== undefined) {
+    if (!isRecord(value.savedReportReferences) || Object.keys(value.savedReportReferences).length > value.savedIds.length) return false
+    for (const [id, reference] of Object.entries(value.savedReportReferences)) {
+      if (!value.savedIds.includes(id) || !restoreSavedReport(id, reference)) return false
+    }
+  }
   for (const comment of value.comments) {
     if (!isRecord(comment) || !isId(comment.id) || !isId(comment.articleId) || comment.authorId !== authorId
       || !isText(comment.authorName, 40) || !isText(comment.body, 2000)
@@ -76,6 +85,9 @@ function validateData(value: unknown, authorId: string): value is WorkspaceData 
 
 function restoreData(value: WorkspaceData): WorkspaceData {
   const data = copy(value)
+  data.savedReportReferences = Object.fromEntries(Object.entries(data.savedReportReferences ?? {}).map(([id, reference]) => [id, {
+    input: reference.input, createdAt: reference.createdAt,
+  }]))
   // Older saves kept URL casing. Identity uses a canonical URL; display labels
   // retain the original casing after validation against the same repository.
   for (const repository of data.repositories) repository.url = repository.url.toLowerCase()
@@ -97,7 +109,7 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
       const text = target.getItem(key)
       if (text === null) return { kind: 'missing' }
       if (text.length > maxStoredLength) throw new Error('Stored data too large')
-      return { kind: 'value', value: JSON.parse(text) }
+      return { kind: 'value', value: JSON.parse(text), raw: text }
     } catch {
       storageError = '保存データを読み込めませんでした。変更は現在の画面内だけで保持される場合があります。'
       return { kind: 'failed' }
@@ -129,6 +141,7 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
     if (isRecord(stored) && stored.version === 1 && validateData(stored.data, 'guest')) guest = restoreData(stored.data)
     else invalidStoredData()
   }
+  const profileVersions = new Map<string, string | null>()
   const profiles = new Map<string, { user: WorkspaceUser; data: WorkspaceData }>()
   const readProfile = (name: string) => {
     const cached = profiles.get(name)
@@ -137,7 +150,7 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
     // existing adapter must not be treated as permission to replace that profile.
     if (storage.local === null) return null
     const result = read(storage.local, profileKey(name))
-    if (result.kind === 'missing') return null
+    if (result.kind === 'missing') { profileVersions.set(name, null); return null }
     if (result.kind === 'failed') return undefined
     const stored = result.value
     if (!isRecord(stored) || stored.version !== 1 || !validateUser(stored.user)
@@ -146,6 +159,7 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
       return undefined
     }
     const profile = { user: copy(stored.user), data: restoreData(stored.data) }
+    profileVersions.set(name, result.raw)
     profiles.set(name, profile)
     return profile
   }
@@ -168,7 +182,24 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
   const persist = () => {
     if (user && activeProfile !== null) {
       profiles.set(activeProfile, { user, data })
-      return write(storage.local, profileKey(activeProfile), { version: 1, user, data })
+      const key = profileKey(activeProfile)
+      // Avoid replacing changes made since this tab loaded the profile. This is
+      // conflict detection for local drafts, not a cross-tab locking mechanism.
+      if (storage.local && profileVersions.has(activeProfile)) {
+        try {
+          if (storage.local.getItem(key) !== profileVersions.get(activeProfile)) {
+            storageError = '別のタブで保存内容が変更されています。この画面の変更は未保存です。必要な内容を控えてから再読み込みしてください。'
+            return false
+          }
+        } catch {
+          storageError = '保存済みの内容を確認できないため上書きしていません。この画面の変更は未保存です。'
+          return false
+        }
+      }
+      const value = { version: 1, user, data }
+      const saved = write(storage.local, key, value)
+      if (saved) profileVersions.set(activeProfile, JSON.stringify(value))
+      return saved
     }
     guest = data
     return write(storage.session, guestKey, { version: 1, data: guest })
@@ -238,11 +269,15 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
       data.activeRepositoryId = id
       persist()
     },
-    toggleSaved(articleId: string) {
+    toggleSaved(articleId: string, reference?: SavedReportReference) {
       articleIdInput(articleId)
       if (!data.savedIds.includes(articleId) && data.savedIds.length >= 5000) throw new Error('保存できる記事は5000件までです。')
+      const removing = data.savedIds.includes(articleId)
+      if (!removing && reference && !restoreSavedReport(articleId, reference)) throw new Error('保存する記事の情報が不正です。')
       beginChange()
-      data.savedIds = data.savedIds.includes(articleId) ? data.savedIds.filter(id => id !== articleId) : [...data.savedIds, articleId]
+      data.savedIds = removing ? data.savedIds.filter(id => id !== articleId) : [...data.savedIds, articleId]
+      if (removing) delete data.savedReportReferences[articleId]
+      else if (reference) data.savedReportReferences[articleId] = { input: reference.input, createdAt: reference.createdAt }
       persist()
     },
     addComment(articleId: string, body: string) {

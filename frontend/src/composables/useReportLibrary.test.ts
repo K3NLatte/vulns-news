@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, toRaw } from 'vue'
-import { historicalReports } from '../services/reports'
+import { getSavedReportItems, historicalReports } from '../services/reports'
 import { useReportLibrary } from './useReportLibrary'
 
 const storageKey = 'vulns-news-report-lab-v1'
@@ -388,4 +388,32 @@ describe('report state validation and queue limits', () => {
     expect(library.reports.value.some(report => report.item.id === reportId)).toBe(false)
   })
 
+})
+
+it('keeps a published periodic report timestamp stable across a later reload', async () => {
+  const first = mountLibrary()
+  await vi.advanceTimersByTimeAsync(30_000)
+  first.library.publish()
+  const published = first.library.additions('').find(item => item.id === 'demo-013')!
+  const timestamps = { publishedAt: published.publishedAt, updatedAt: published.updatedAt }
+  await nextTick()
+  first.stop()
+  vi.setSystemTime('2026-09-27T03:00:00.000Z')
+
+  const second = mountLibrary()
+
+  expect(second.library.additions('').find(item => item.id === 'demo-013')).toMatchObject(timestamps)
+})
+
+
+it('keeps a restorable original submission reference when a later request uses an alias', async () => {
+  const { library } = mountLibrary()
+  library.submit('https://nvd.nist.gov/vuln/detail/CVE-2026-12345')
+  const id = library.jobs.value[0]!.reportIds[0]!
+  await vi.advanceTimersByTimeAsync(6500)
+  library.submit('CVE-2026-12345')
+  const reference = library.referenceFor(id)!
+  expect(reference).toEqual({ input: 'https://nvd.nist.gov/vuln/detail/CVE-2026-12345', createdAt: '2026-09-25T03:00:00.000Z' })
+  expect(getSavedReportItems({ [id]: reference })[0]?.id).toBe(id)
+  expect(library.referenceFor('demo-001')).toBeUndefined()
 })
