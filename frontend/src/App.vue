@@ -25,6 +25,10 @@ watch(search, value => {
   searchTimer = setTimeout(() => { settledSearch.value = value.trim() }, 200)
 })
 onScopeDispose(() => clearTimeout(searchTimer))
+const canSortByRelevance = computed(() => scope.value === 'repository' && Boolean(repositoryUrl.value))
+watch(canSortByRelevance, allowed => {
+  if (!allowed && sort.value === 'relevance') sort.value = 'newest'
+})
 const query = computed<FeedQuery>(() => ({ scope: scope.value, repositoryUrl: repositoryUrl.value || undefined, search: settledSearch.value, severity: severity.value, sort: sort.value }))
 const enabled = computed(() => scope.value === 'all' || Boolean(repositoryUrl.value))
 const { items, total, selectedId, selected, loading, error, reload } = useFeed(query, enabled, preview)
@@ -85,7 +89,7 @@ async function backToList() {
     </nav>
     <RepositoryForm v-if="scope === 'repository'" :repository="repositoryUrl" @submit="setRepository" />
     <div v-if="scope === 'repository' && repositoryLabel" class="repository-context"><GitBranch :size="15" aria-hidden="true" /><strong>{{ repositoryLabel }}</strong><span>サンプル依存構成による表示</span></div>
-    <FeedToolbar v-model:search="search" v-model:severity="severity" v-model:sort="sort" />
+    <FeedToolbar v-model:search="search" v-model:severity="severity" v-model:sort="sort" :allow-relevance-sort="canSortByRelevance" />
     <div class="results-heading">
       <p aria-live="polite" aria-atomic="true"><template v-if="loading">読み込み中</template><template v-else-if="error">読み込みエラー</template><template v-else-if="!enabled">リポジトリ未指定</template><template v-else><strong>{{ items.length }}</strong> 件<span v-if="hasFilters"> / 全{{ total }}件</span><span class="result-scope">{{ scope === 'all' ? '一般フィード' : '関連フィード' }}</span></template></p>
       <button v-if="hasFilters" class="text-button reset-filters" type="button" @click="resetFilters"><X :size="13" aria-hidden="true" />条件を解除</button>

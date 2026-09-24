@@ -1,6 +1,6 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
 export type Exploitation = 'observed' | 'poc' | 'not-observed'
-export type FeedSort = 'newest' | 'severity'
+export type FeedSort = 'newest' | 'severity' | 'relevance'
 export type FeedScope = 'all' | 'repository'
 
 export interface FeedQuery {
@@ -33,6 +33,8 @@ export interface FeedItem {
   }
   relevance?: {
     kind: 'direct' | 'transitive' | 'review'
+    /** 暫定モックの関連度（0〜100）。重要度や依存種別とは別の値。未評価なら省略。 */
+    score?: number
     reason: string
     packageName: string
     installedVersion: string

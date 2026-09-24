@@ -90,6 +90,10 @@ function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+function relevanceScore(score: number | undefined): number {
+  return score !== undefined && Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY
+}
+
 const normalizeSearch = (text: string) => text.normalize('NFKC').toLocaleLowerCase('ja-JP')
 
 /**
@@ -128,6 +132,11 @@ export async function getFeed(query: FeedQuery, options: FeedOptions = {}): Prom
     return terms.every((term) => searchable.includes(term))
   })
   const items = [...filtered].sort((a, b) => {
+    if (query.scope === 'repository' && query.sort === 'relevance') {
+      const aScore = relevanceScore(a.relevance?.score)
+      const bScore = relevanceScore(b.relevance?.score)
+      if (aScore !== bScore) return bScore - aScore
+    }
     if (query.sort === 'severity') {
       const severityDifference = severityOrder[a.severity] - severityOrder[b.severity]
       if (severityDifference) return severityDifference

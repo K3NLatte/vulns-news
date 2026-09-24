@@ -30,7 +30,7 @@ export const mockFeed: FeedItem[] = [
       evidence: 'サンプルの依存情報に3.4.0を含めています。実際のリポジトリや公開設定は解析していません。',
       confidence: 'medium',
     },
-    relevance: { kind: 'direct', reason: 'サンプルの直接依存が影響範囲に含まれます。プレビュー機能の利用有無は未確認です。', packageName: 'sampleview-engine', installedVersion: '3.4.0' },
+    relevance: { kind: 'direct', reason: 'サンプルの直接依存が影響範囲に含まれます。プレビュー機能の利用有無は未確認です。', score: 74, packageName: 'sampleview-engine', installedVersion: '3.4.0' },
     sources: reference(94, 'コード生成の制御不備'),
   },
   {
@@ -53,7 +53,7 @@ export const mockFeed: FeedItem[] = [
       evidence: 'サンプルのWebフレームワークが2.5.0を参照する想定です。機密データのキャッシュ状況は未確認です。',
       confidence: 'medium',
     },
-    relevance: { kind: 'transitive', reason: 'サンプルのWebフレームワーク経由で取り込まれます。キャッシュ設定を確認してください。', packageName: 'democache-gateway', installedVersion: '2.5.0' },
+    relevance: { kind: 'transitive', reason: 'サンプルのWebフレームワーク経由で取り込まれます。キャッシュ設定を確認してください。', score: 92, packageName: 'democache-gateway', installedVersion: '2.5.0' },
     sources: reference(524, '機密情報を含むキャッシュ'),
   },
   {
@@ -76,7 +76,7 @@ export const mockFeed: FeedItem[] = [
       evidence: 'サンプル依存情報の1.8.1と、記事内の架空の影響範囲を照合しています。',
       confidence: 'high',
     },
-    relevance: { kind: 'direct', reason: 'サンプルの直接依存1.8.1が影響範囲に含まれます。', packageName: 'trial-attachment', installedVersion: '1.8.1' },
+    relevance: { kind: 'direct', reason: 'サンプルの直接依存1.8.1が影響範囲に含まれます。', score: 98, packageName: 'trial-attachment', installedVersion: '1.8.1' },
     sources: reference(22, 'パストラバーサル'),
   },
   {
@@ -121,7 +121,7 @@ export const mockFeed: FeedItem[] = [
       evidence: 'サンプルにsamplehook-clientが含まれます。relay本体と同じ処理を利用するかは未確認です。',
       confidence: 'low',
     },
-    relevance: { kind: 'review', reason: '関連するクライアントは存在しますが、影響するサーバー実装の使用は未確認です。', packageName: 'samplehook-client', installedVersion: '1.2.0' },
+    relevance: { kind: 'review', reason: '関連するクライアントは存在しますが、影響するサーバー実装の使用は未確認です。', score: 33, packageName: 'samplehook-client', installedVersion: '1.2.0' },
     sources: reference(918, 'サーバーサイドリクエストフォージェリ'),
   },
   {
@@ -144,7 +144,7 @@ export const mockFeed: FeedItem[] = [
       evidence: 'サンプルの直接依存は2.6.0です。アプリ独自のサニタイズ処理は解析していません。',
       confidence: 'medium',
     },
-    relevance: { kind: 'direct', reason: 'サンプルのMarkdown表示ライブラリが影響範囲に含まれます。', packageName: 'demo-markdown', installedVersion: '2.6.0' },
+    relevance: { kind: 'direct', reason: 'サンプルのMarkdown表示ライブラリが影響範囲に含まれます。', score: 86, packageName: 'demo-markdown', installedVersion: '2.6.0' },
     sources: reference(79, 'クロスサイトスクリプティング'),
   },
   {
@@ -189,7 +189,7 @@ export const mockFeed: FeedItem[] = [
       evidence: 'サンプルSDKが1.8.3を参照する想定です。データの到達性は未確認です。',
       confidence: 'medium',
     },
-    relevance: { kind: 'transitive', reason: 'サンプルSDK経由の依存です。外部入力を処理する箇所を確認してください。', packageName: 'exampledata-parser', installedVersion: '1.8.3' },
+    relevance: { kind: 'transitive', reason: 'サンプルSDK経由の依存です。外部入力を処理する箇所を確認してください。', score: 68, packageName: 'exampledata-parser', installedVersion: '1.8.3' },
     sources: reference(400, '制御されていないリソース消費'),
   },
   {

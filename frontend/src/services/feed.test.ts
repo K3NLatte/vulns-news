@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { getFeed, parseRepositoryUrl } from './feed'
+import { mockFeed } from '../mocks/feed'
 import type { FeedQuery } from './feed'
 
 const allFeed: FeedQuery = {
@@ -88,6 +89,85 @@ describe('getFeed', () => {
       'DEMO-2026-002', 'DEMO-2026-003', 'DEMO-2026-005', 'DEMO-2026-007', 'DEMO-2026-011',
       'DEMO-2026-006', 'DEMO-2026-008', 'DEMO-2026-010', 'DEMO-2026-012',
     ])
+  })
+
+  it('sorts repository results by their explicit relevance scores', async () => {
+    const result = await load({
+      scope: 'repository',
+      repositoryUrl: 'https://github.com/example/project',
+      sort: 'relevance',
+    })
+    expect(result.items.map((item) => item.id)).toEqual([
+      'demo-003', 'demo-002', 'demo-006', 'demo-001', 'demo-008', 'demo-005',
+    ])
+    expect(result.items.map((item) => item.relevance?.score)).toEqual([98, 92, 86, 74, 68, 33])
+    expect(result.total).toBe(6)
+    expect(result.matchedTotal).toBe(6)
+  })
+
+  it('uses publication time and ID for tied scores and puts unscored results last', async () => {
+    const originalItems = mockFeed.slice()
+    const example = mockFeed.find((item) => item.relevance)!
+    const cases = [
+      { id: 'unscored', score: undefined, publishedAt: '2026-09-24T03:00:00.000Z' },
+      { id: 'infinite', score: Number.POSITIVE_INFINITY, publishedAt: '2026-09-24T02:00:00.000Z' },
+      { id: 'nan', score: Number.NaN, publishedAt: '2026-09-24T01:00:00.000Z' },
+      { id: 'negative-infinite', score: Number.NEGATIVE_INFINITY, publishedAt: '2026-09-24T00:00:00.000Z' },
+      { id: 'zero', score: 0, publishedAt: '2026-09-20T00:00:00.000Z' },
+      { id: 'score-b', score: 50, publishedAt: '2026-09-23T00:00:00.000Z' },
+      { id: 'score-older', score: 50, publishedAt: '2026-09-22T00:00:00.000Z' },
+      { id: 'score-a', score: 50, publishedAt: '2026-09-23T00:00:00.000Z' },
+    ]
+    const fixtures = cases.map(({ id, score, publishedAt }) => ({
+      ...structuredClone(example),
+      id,
+      publishedAt,
+      relevance: { ...example.relevance!, score },
+    }))
+    try {
+      mockFeed.splice(0, mockFeed.length, ...fixtures)
+      const result = await load({
+        scope: 'repository',
+        repositoryUrl: 'https://github.com/example/project',
+        sort: 'relevance',
+      })
+      expect(result.items.map((item) => item.id)).toEqual([
+        'score-a', 'score-b', 'score-older', 'zero',
+        'unscored', 'infinite', 'nan', 'negative-infinite',
+      ])
+    } finally {
+      mockFeed.splice(0, mockFeed.length, ...originalItems)
+    }
+  })
+
+  it('combines repository relevance sorting with search and severity filters', async () => {
+    const result = await load({
+      scope: 'repository',
+      repositoryUrl: 'https://github.com/example/project',
+      sort: 'relevance',
+      severity: 'high',
+      search: 'DEMO-2026',
+    })
+    expect(result.items.map((item) => item.id)).toEqual(['demo-003', 'demo-002', 'demo-005'])
+    expect(result.total).toBe(6)
+    expect(result.matchedTotal).toBe(3)
+    const narrowed = await load({
+      scope: 'repository',
+      repositoryUrl: 'https://github.com/example/project',
+      sort: 'relevance',
+      severity: 'high',
+      search: 'TrialAttachment',
+    })
+    expect(narrowed.items.map((item) => item.id)).toEqual(['demo-003'])
+    expect(narrowed.total).toBe(6)
+    expect(narrowed.matchedTotal).toBe(1)
+  })
+
+  it('falls back to newest order for relevance sorting outside repository scope', async () => {
+    const newest = await load({ sort: 'newest' })
+    const relevance = await load({ sort: 'relevance', repositoryUrl: 'https://github.com/example/project' })
+    expect(relevance.items.map((item) => item.id)).toEqual(newest.items.map((item) => item.id))
+    expect(relevance.total).toBe(12)
   })
 
   it('keeps the scope total separate from the filtered count', async () => {

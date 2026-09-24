@@ -2,7 +2,7 @@
 import { Search, X } from '@lucide/vue'
 import type { FeedSort, Severity } from '../types/feed'
 import { severityLabels } from '../utils/presentation'
-defineProps<{ search: string; severity: Severity | 'all'; sort: FeedSort }>()
+defineProps<{ search: string; severity: Severity | 'all'; sort: FeedSort; allowRelevanceSort: boolean }>()
 const emit = defineEmits<{
   'update:search': [value: string]
   'update:severity': [value: Severity | 'all']
@@ -32,6 +32,7 @@ const severities: Severity[] = ['critical', 'high', 'medium', 'low']
         <select id="feed-sort" :value="sort" @change="emit('update:sort', ($event.target as HTMLSelectElement).value as FeedSort)">
           <option value="newest">公開が新しい順</option>
           <option value="severity">重要度が高い順</option>
+          <option v-if="allowRelevanceSort" value="relevance">関連度が高い順</option>
         </select>
       </div>
     </div>
