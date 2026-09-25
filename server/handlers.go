@@ -47,6 +47,31 @@ func handleListCVEs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleGetCVE は指定された CVE の詳細を返す。
+func handleGetCVE(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// handleCreateRepository はリポジトリを登録し、リポジトリ ID とジョブ ID を返す。
+func handleCreateRepository(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// handleGetJob は指定されたジョブの処理状態を返す。
+func handleGetJob(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// handleGetRepositoryFeed はリポジトリに関連する CVE 一覧を返す。
+func handleGetRepositoryFeed(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
+// handleGetRepositoryCVE はリポジトリにおける CVE の詳細・関連性を返す。
+func handleGetRepositoryCVE(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "not implemented", http.StatusNotImplemented)
+}
+
 // handleCreateAnalysis は新しい調査を作成し、Orchestrator に実行を依頼する。
 func handleCreateAnalysis(w http.ResponseWriter, r *http.Request) {
 

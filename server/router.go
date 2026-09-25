@@ -10,6 +10,21 @@ func newRouter() *http.ServeMux {
 	// 初期画面に表示する、収集済みの CVE 一覧を取得する。
 	mux.HandleFunc("GET /api/cves", handleListCVEs)
 
+	// 指定された CVE の詳細を取得する。
+	mux.HandleFunc("GET /api/cves/{cve_id}", handleGetCVE)
+
+	// リポジトリを登録し、repository_id と job_id を返す。
+	mux.HandleFunc("POST /api/repositories", handleCreateRepository)
+
+	// リポジトリの解析処理の進捗を取得する。
+	mux.HandleFunc("GET /api/jobs/{job_id}", handleGetJob)
+
+	// リポジトリに関連する CVE 一覧を取得する。
+	mux.HandleFunc("GET /api/repositories/{repository_id}/feed", handleGetRepositoryFeed)
+
+	// リポジトリにおける CVE の詳細・関連性を取得する。
+	mux.HandleFunc("GET /api/repositories/{repository_id}/feed/{cve_id}", handleGetRepositoryCVE)
+
 	// CVE・Repository・ref を指定して調査を開始し、analysis_id を返す。
 	mux.HandleFunc("POST /api/analyses", handleCreateAnalysis)
 
