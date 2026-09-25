@@ -21,7 +21,8 @@
     "noFallthroughCasesInSwitch": true,
     "types": [
       "vite/client"
-    ]
+    ],
+    "noUncheckedIndexedAccess": true
   },
   "include": [
     "src/**/*.ts",

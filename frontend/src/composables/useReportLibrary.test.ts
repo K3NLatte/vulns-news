@@ -88,7 +88,7 @@ describe('report library interaction scenarios', () => {
     const results = library.repositoryItems(repository)
     expect(results.map(item => item.id)).toEqual([...reusableIds, 'history-002'])
     expect(library.lifecycles.value['history-001']?.revision).toBe(1)
-    expect(library.lifecycles.value['history-002']?.revision).toBe(1)
+    expect(library.lifecycles.value['history-002']?.revision).toBe(0)
     expect(results.find(item => item.id === 'history-002')?.repositoryAnalysis).toBe('pending')
   })
 
@@ -149,7 +149,7 @@ describe('report library interaction scenarios', () => {
     const { library } = mountLibrary()
 
     expect(library.jobs.value[0]?.status).toBe('completed')
-    expect(library.lifecycles.value[reportId]?.revision).toBe(1)
+    expect(library.lifecycles.value[reportId]?.revision).toBe(0)
     expect(library.reports.value.some(report => report.item.id === reportId)).toBe(true)
     expect(library.additions('').map(item => item.id)).toContain(reportId)
     expect(library.publicationQueue.value).not.toContain(reportId)
@@ -270,7 +270,8 @@ describe('report state validation and queue limits', () => {
 
     library.retry(failed.id)
     expect(failed.status).toBe('failed')
-    expect(library.submissionError.value).toContain('5件')
+    expect(library.submissionError.value).toBe('')
+    expect(library.operationErrors.value[failed.id]).toContain('5件')
     library.cancel(library.jobs.value[0]!.id)
     library.retry(failed.id)
     expect(failed.status).toBe('queued')
@@ -544,5 +545,206 @@ describe('report library profile boundaries', () => {
     owner.value = 'user:bob'
     expect(library.storageError.value).toBe('')
     expect(library.jobs.value).toEqual([])
+  })
+})
+
+
+describe('review follow-up regressions', () => {
+  it('keeps completed reuse idempotent and provides duplicate feedback', () => {
+    const { library } = mountLibrary()
+    const input = historicalReports[0]!.sources[0]!.url
+    library.submit(input)
+    for (let index = 0; index < 120; index += 1) {
+      expect(library.submit(input)).toMatchObject({ ok: true, status: 'duplicate' })
+    }
+    expect(library.jobs.value).toHaveLength(1)
+    expect(library.submissionMessage.value).toContain('同じ依頼')
+    expect(library.submissionError.value).toBe('')
+  })
+
+  it('reports reanalysis and retry errors beside that action without polluting submission', () => {
+    const { library } = mountLibrary()
+    for (let index = 0; index < 5; index += 1) library.submit('CVE-2026-' + (12340 + index))
+    expect(library.reanalyze('history-001')).toMatchObject({ ok: false, reason: 'capacity' })
+    expect(library.operationErrors.value['history-001']).toContain('5件')
+    expect(library.submissionError.value).toBe('')
+  })
+
+  it('preserves request time on retry and uses a separate attempt start', async () => {
+    const { library } = mountLibrary()
+    library.submit('CVE-2026-12345')
+    const job = library.jobs.value[0]!
+    const requestedAt = job.createdAt
+    library.cancel(job.id)
+    vi.setSystemTime('2026-09-25T05:00:00.000Z')
+    library.retry(job.id)
+    expect(job.createdAt).toBe(requestedAt)
+    expect(job.startedAt).toBe('2026-09-25T05:00:00.000Z')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(job.status).toBe('collecting')
+  })
+
+  it('recovers capacity by deleting a terminal request and its unsaved generated record', () => {
+    const { library } = mountLibrary()
+    for (let index = 0; index < 100; index += 1) {
+      library.submit('CVE-2026-' + (12000 + index))
+      library.cancel(library.jobs.value[0]!.id)
+    }
+    expect(library.submit('CVE-2026-99999')).toMatchObject({ ok: false, reason: 'history' })
+    const oldest = library.jobs.value.at(-1)!
+    expect(library.dismissJob(oldest.id)).toBe(true)
+    expect(library.referenceFor(oldest.reportIds[0]!)).toBeUndefined()
+    expect(library.submit('CVE-2026-99999')).toMatchObject({ ok: true, status: 'accepted' })
+    expect(library.dismissJob(library.jobs.value[0]!.id)).toBe(false)
+  })
+
+  it('retains completed and pending work after the local clock moves backwards', async () => {
+    const first = mountLibrary()
+    first.library.reanalyze('history-001')
+    await vi.advanceTimersByTimeAsync(6500)
+    const revision = first.library.lifecycles.value['history-001']!.revision
+    first.library.submit('CVE-2026-12345')
+    const at = first.library.jobs.value[0]!.createdAt
+    await nextTick()
+    first.stop()
+    vi.setSystemTime('2026-09-24T03:00:00.000Z')
+    const { library } = mountLibrary()
+    expect(library.jobs.value.find(job => job.kind === 'submission')?.createdAt).toBe(at)
+    expect(library.lifecycles.value['history-001']!.revision).toBe(revision)
+    await vi.advanceTimersByTimeAsync(6500)
+    expect(library.jobs.value.find(job => job.kind === 'submission')?.status).toBe('completed')
+  })
+
+  it('saves only changed lifecycle state and clears a recovered write failure', async () => {
+    const { library } = mountLibrary()
+    library.submit(historicalReports[0]!.sources[0]!.url)
+    await nextTick()
+    expect(Object.keys(JSON.parse(stored.get(storageKey)!).lifecycles)).toHaveLength(0)
+    const original = sessionStorage.setItem
+    const failing = vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => { throw new Error('full') })
+    library.submit('CVE-2026-12345')
+    await nextTick()
+    expect(library.storageError.value).not.toBe('')
+    failing.mockImplementation(original)
+    library.cancel(library.jobs.value[0]!.id)
+    await nextTick()
+    expect(library.storageError.value).toBe('')
+  })
+
+  it('does not mark reused reports as currently analyzing during a repository scan', () => {
+    const { library } = mountLibrary()
+    library.scanRepository('https://github.com/example/frontend')
+    expect(library.activeJobFor('history-001')).toBeUndefined()
+    expect(library.activeJobFor('history-002')?.kind).toBe('repository')
+  })
+
+  it('does not update the reactive clock while the tab is hidden', async () => {
+    const { library } = mountLibrary()
+    const before = library.now.value
+    vi.stubGlobal('document', { visibilityState: 'hidden' })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(library.now.value).toBe(before)
+  })
+})
+
+it('does not start a timer or touch stored analysis state when the feature is disabled', () => {
+  const scope = effectScope()
+  scopes.push(scope)
+  stored.set(storageKey, '{preserve-existing-state}')
+  const library = scope.run(() => useReportLibrary(null, false))!
+  expect(vi.getTimerCount()).toBe(0)
+  expect(library.submit('CVE-2026-12345')).toMatchObject({ ok: false })
+  scope.stop()
+  expect(stored.get(storageKey)).toBe('{preserve-existing-state}')
+})
+
+it('applies work completed while closed after restoring earlier scheduled revisions', async () => {
+  const first = mountLibrary()
+  await vi.advanceTimersByTimeAsync(1000)
+  const before = first.library.lifecycles.value['demo-004']!.revision
+  expect(before).toBe(2)
+  first.library.reanalyze('demo-004')
+  await nextTick()
+  first.stop()
+  vi.setSystemTime('2026-09-25T03:00:10.000Z')
+  const second = mountLibrary()
+  expect(second.library.lifecycles.value['demo-004']?.revision).toBe(before + 1)
+  expect(second.library.lifecycles.value['demo-004']?.history.at(-1)?.reason).toBe('manual')
+  second.stop()
+  const third = mountLibrary()
+  expect(third.library.lifecycles.value['demo-004']?.revision).toBe(before + 1)
+})
+it('can publish a retried cancelled submission while leaving analysis unverified', async () => {
+  const { library } = mountLibrary()
+  library.submit('CVE-2026-12345')
+  const job = library.jobs.value[0]!
+  const id = job.reportIds[0]!
+  library.cancel(job.id)
+  library.reanalyze(id)
+  await vi.advanceTimersByTimeAsync(6500)
+  expect(library.publicationQueue.value).toContain(id)
+  expect(library.lifecycles.value[id]?.revision).toBe(0)
+})
+
+
+describe('asynchronous report command boundary', () => {
+  it('validates before the external adapter and guards disabled features', async () => {
+    const admit = vi.fn(async (_command: { key: string }) => ({ ok: true as const }))
+    const scope = effectScope()
+    scopes.push(scope)
+    const library = scope.run(() => useReportLibrary(null, true, admit))!
+    expect(await library.commands.submit('https://example.org/a?token=secret')).toMatchObject({ ok: false, reason: 'invalid' })
+    expect(admit).not.toHaveBeenCalled()
+    const disabled = scope.run(() => useReportLibrary(null, false, admit))!
+    expect(await disabled.commands.submit('CVE-2026-12345')).toMatchObject({ ok: false })
+    expect(admit).not.toHaveBeenCalled()
+    await library.commands.submit(' cve-2026-12345 ')
+    expect(admit.mock.calls[0]?.[0]).toMatchObject({ key: 'CVE-2026-12345' })
+  })
+
+  it('keeps pending commands out of local jobs until admitted and rejects double submission', async () => {
+    let accept!: (value: { ok: true }) => void
+    const scope = effectScope()
+    scopes.push(scope)
+    const library = scope.run(() => useReportLibrary(null, true, () => new Promise(resolve => { accept = resolve })))!
+    const request = library.commands.submit('CVE-2026-12345')
+    expect(library.pending.value).toBe(true)
+    expect(library.jobs.value).toEqual([])
+    expect(await library.commands.submit('CVE-2026-12345')).toMatchObject({ ok: false, reason: 'busy' })
+    accept({ ok: true })
+    expect(await request).toMatchObject({ ok: true, status: 'accepted' })
+    expect(library.pending.value).toBe(false)
+    expect(library.jobs.value).toHaveLength(1)
+  })
+
+  it('reports classified failure and never renders raw adapter exceptions', async () => {
+    const scope = effectScope()
+    scopes.push(scope)
+    const library = scope.run(() => useReportLibrary(null, true, async () => { throw new Error('private token=123') }))!
+    expect(await library.commands.submit('CVE-2026-12345')).toMatchObject({ ok: false, reason: 'network' })
+    expect(library.jobs.value).toEqual([])
+    expect(library.submissionError.value).not.toContain('private')
+    expect(library.submissionError.value).toContain('接続')
+  })
+
+  it('aborts immediately on owner change and discards a late admission', async () => {
+    let accept!: (value: { ok: true }) => void
+    let signal!: AbortSignal
+    const owner = ref('alice')
+    const scope = effectScope()
+    scopes.push(scope)
+    const library = scope.run(() => useReportLibrary(owner, true, (_, options) => {
+      signal = options.signal
+      return new Promise(resolve => { accept = resolve })
+    }))!
+    const request = library.commands.submit('CVE-2026-12345')
+    owner.value = 'bob'
+    expect(signal.aborted).toBe(true)
+    expect(await request).toMatchObject({ ok: false, reason: 'aborted' })
+    accept({ ok: true })
+    await nextTick()
+    expect(library.jobs.value).toEqual([])
+    expect(library.pending.value).toBe(false)
+    expect(vi.getTimerCount()).toBe(1)
   })
 })

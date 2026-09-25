@@ -1,5 +1,5 @@
-export type Severity = 'critical' | 'high' | 'medium' | 'low'
-export type Exploitation = 'observed' | 'poc' | 'not-observed'
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'none' | 'unknown'
+export type Exploitation = 'observed' | 'poc' | 'not-observed' | 'unknown'
 export type FeedSort = 'newest' | 'severity' | 'relevance'
 export type FeedScope = 'all' | 'repository'
 export type ReviewPriority = 'urgent' | 'high' | 'medium' | 'low' | 'review'
@@ -8,6 +8,7 @@ export interface FeedQuery {
   scope: FeedScope
   repositoryUrl?: string
   search: string
+  cursor?: string
   severity: Severity | 'all'
   sort: FeedSort
 }
@@ -16,17 +17,18 @@ export interface FeedItem {
   id: string
   advisoryId: string
   title: string
-  product: string
-  affectedVersions: string
-  fixedVersion: string
+  product: string | null
+  affectedVersions: string | null
+  fixedVersion: string | null
   severity: Severity
   cvss: number | null
   assessment?: 'unverified'
-  publishedAt: string
-  updatedAt: string
+  publishedAt: string | null
+  updatedAt: string | null
+  submittedAt?: string
   summary: string
   exploitation: Exploitation
-  affectedComponent: string
+  affectedComponent: string | null
   remediation: string[]
   proofOfConcept?: {
     language: string
@@ -36,9 +38,9 @@ export interface FeedItem {
   /** Repository-specific outcome in the design mock; not a backend API contract. */
   repositoryAnalysis?: 'analyzed' | 'pending'
   analysis: {
-    summary: string
-    evidence: string
-    confidence: 'high' | 'medium' | 'low'
+    summary: string | null
+    evidence: string | null
+    confidence: 'high' | 'medium' | 'low' | 'unknown'
   }
   relevance?: {
     kind: 'direct' | 'transitive' | 'review'
@@ -63,6 +65,10 @@ export interface FeedResult {
   /** Number of items after all filters. */
   matchedTotal: number
   generatedAt: string
+  /** Opaque cursor supplied by the adapter; totals may exceed this page. */
+  nextCursor?: string | null
+  /** Invalid rows omitted at the data boundary. */
+  rejectedCount?: number
 }
 
 export interface FeedOptions {

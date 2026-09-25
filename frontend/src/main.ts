@@ -1,5 +1,6 @@
-import { createApp } from 'vue'
+import { createApp, h } from 'vue'
 import App from './App.vue'
+import AppErrorBoundary from './components/AppErrorBoundary.vue'
 import './styles.css'
 
-createApp(App).mount('#app')
+createApp({ render: () => h(AppErrorBoundary, null, { default: () => h(App) }) }).mount('#app')

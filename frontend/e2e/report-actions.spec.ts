@@ -21,7 +21,7 @@ test('manual analysis preserves expiry until tracking is explicitly renewed', as
   const previousDeadline = await deadline.innerText()
 
   await tracking.getByRole('button', { name: '再分析を依頼', exact: true }).click()
-  await expect(tracking.getByRole('button', { name: '再分析中', exact: true })).toBeDisabled()
+  await expect(tracking.getByRole('button', { name: '再分析を依頼', exact: true })).toHaveAttribute('aria-disabled', 'true')
   // Date is fixed independently of real timers; advance it past the local job's completion.
   await page.clock.setFixedTime(new Date(expiredAt.getTime() + 7000))
   await expect(lastAnalysis).toContainText('第2版')
@@ -46,7 +46,7 @@ test('repository review decisions survive expansion and reload without leaking i
   await page.locator('#article-demo-003').click()
   const review = page.getByLabel('このリポジトリでの対応', { exact: true })
   await review.selectOption('resolved')
-  await page.getByRole('button', { name: 'ページで開く', exact: true }).click()
+  await page.locator('.feed-detail').getByRole('link', { name: 'ページで開く', exact: true }).click()
   await expect(review).toHaveValue('resolved')
   const repositoryArticleUrl = page.url()
   await page.reload()

@@ -16,7 +16,7 @@ async function login(page: Page, name: string) {
   await expect(page.getByRole('dialog')).not.toBeVisible()
 }
 async function logout(page: Page, name: string) {
-  await page.getByRole('navigation', { name: 'メインメニュー' }).getByRole('button', { name, exact: true }).click()
+  await page.getByRole('navigation', { name: 'メインメニュー' }).getByRole('button', { name: name + ' のアカウントを開く', exact: true }).click()
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click()
 }
 async function registerRepository(page: Page) {
@@ -57,7 +57,7 @@ test('relevance sort puts all pending results behind evaluated results', async (
 test('profile switching isolates request history and submitted article access', async ({ page }) => {
   await page.goto('/#/analyze')
   await login(page, 'alice')
-  await page.getByLabel('CVE・GHSA・アドバイザリURL').fill('https://vendor.example/advisory/42?session=alice-private')
+  await page.getByLabel('CVE・GHSA・アドバイザリURL').fill('https://vendor.example.com/advisory/alice-private')
   await page.getByRole('button', { name: '解析する', exact: true }).click()
   await expect(page.locator('.request-entry')).toHaveCount(1)
   const reportLink = page.locator('.request-entry').getByRole('link')
@@ -78,7 +78,7 @@ test('profile switching isolates request history and submitted article access', 
   await login(page, 'alice')
   await expect(page.locator('.request-entry')).toHaveCount(1)
   await page.locator('.request-entry').getByRole('link').click()
-  await expect(page.locator('a[href="https://vendor.example/advisory/42?session=alice-private"]')).toBeVisible()
+  await expect(page.locator('a[href="https://vendor.example.com/advisory/alice-private"]')).toBeVisible()
 })
 
 test('repository search starts only on request and reports capacity rejection at the action', async ({ page }) => {

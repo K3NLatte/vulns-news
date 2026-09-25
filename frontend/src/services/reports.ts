@@ -1,4 +1,5 @@
 import { MAX_URL_LENGTH, isWellFormedText, parsePublicHttpsUrl } from '../utils/publicUrl'
+import { hasUnsafeCharacters } from '../utils/inputText'
 import { isStoredDate } from './reportSession'
 import type { FeedItem } from '../types/feed'
 import type {
@@ -20,14 +21,20 @@ const GHSA_PATTERN = /^GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-
 export function normalizeReportInput(raw: unknown): ReportInputResult {
   const invalid = (message: string): ReportInputResult => ({ ok: false, message })
   if (typeof raw !== 'string' || raw.length > MAX_URL_LENGTH || !isWellFormedText(raw)) return invalid('入力は2,048文字以内にしてください。')
-  if (/[\u0000-\u001f\u007f\\]/u.test(raw)) return invalid('改行や制御文字を含まないID・URLを入力してください。')
+  if (hasUnsafeCharacters(raw) || /[\r\n\t\\]/u.test(raw)) return invalid('改行や制御文字を含まないID・URLを入力してください。')
   const value = raw.trim()
   if (!value) return invalid('CVE・GHSAのID、またはアドバイザリのURLを入力してください。')
-  if (CVE_PATTERN.test(value)) return { ok: true, kind: 'cve', key: value.toUpperCase() }
-  if (GHSA_PATTERN.test(value)) return { ok: true, kind: 'ghsa', key: value.toUpperCase() }
+  const identifier = value.normalize('NFKC')
+  if (CVE_PATTERN.test(identifier)) return { ok: true, kind: 'cve', key: identifier.toUpperCase() }
+  if (GHSA_PATTERN.test(identifier)) return { ok: true, kind: 'ghsa', key: identifier.toUpperCase() }
 
+  if (/^CVE(?:[-\s]|$)/iu.test(identifier)) return invalid('CVE-年-4桁以上の番号の形式で入力してください。')
+  if (/^GHSA(?:[-\s]|$)/iu.test(identifier)) return invalid('GHSA-xxxx-xxxx-xxxx の形式で入力してください。')
   const url = parsePublicHttpsUrl(value)
   if (!url) return invalid('認証情報や独自ポートを含まない、公開アドバイザリのHTTPS URLを入力してください。')
+  if ([...url.searchParams.keys()].some(key => /^(?:access[_-]?token|token|api[_-]?key|password|secret|authorization|session)$/iu.test(key))) {
+    return invalid('認証情報と思われるクエリが含まれています。token・sessionなどを削除した公開URLを入力してください。')
+  }
   url.hash = ''
   return { ok: true, kind: 'url', key: url.href }
 }
@@ -55,7 +62,7 @@ function comparisonKey(value: string): string {
 
 export function findExistingReport(inputKey: string, items: FeedItem[]): FeedItem | undefined {
   const key = comparisonKey(inputKey)
-  return items.find((item) => [item.id, item.advisoryId, ...item.sources.map((source) => source.url)]
+  return items.find((item) => [item.id, item.advisoryId, ...item.sources.filter(source => source.kind === 'vendor' || advisoryIdFromUrl(source.url)).map(source => source.url)]
     .some((value) => comparisonKey(value) === key))
 }
 
@@ -83,25 +90,26 @@ export function createSubmittedReport(inputKey: string, kind: ReportInputKind, n
   return {
     // Workspace IDs are bounded to 200 characters, including the submitted- prefix.
     id: kind === 'url' || key.length > 190 ? `submitted-${kind}-${localReportId(key)}` : `submitted-${key}`,
-    advisoryId: kind === 'url' ? advisoryIdFromUrl(key) ?? 'URLから追加' : key,
+    advisoryId: kind === 'url' ? advisoryIdFromUrl(key) ?? `${new URL(key).hostname}${new URL(key).pathname}` : key,
     title: kind === 'url' ? `${new URL(key).hostname} のアドバイザリ` : `${key} の調査`,
-    product: '未確認',
-    affectedVersions: '未確認',
-    fixedVersion: '未確認',
-    severity: 'medium',
+    product: null,
+    affectedVersions: null,
+    fixedVersion: null,
+    severity: 'unknown',
     cvss: null,
     assessment: 'unverified',
-    publishedAt: now,
-    updatedAt: now,
+    publishedAt: null,
+    updatedAt: null,
+    submittedAt: now,
     summary: '入力された情報の存在、対象製品、影響範囲は未確認です。',
-    exploitation: 'not-observed',
-    affectedComponent: '未確認',
+    exploitation: 'unknown',
+    affectedComponent: null,
     remediation: [],
     repositoryAnalysis: 'pending',
     analysis: {
-      summary: '未評価',
-      evidence: '一次情報の取得・照合が必要です。',
-      confidence: 'low',
+      summary: null,
+      evidence: null,
+      confidence: 'unknown',
     },
     sources: [{ name: kind === 'cve' ? 'NVD' : kind === 'ghsa' ? 'GitHub Advisory Database' : new URL(key).hostname, url: sourceUrl, kind: 'reference' }],
   }
@@ -122,8 +130,8 @@ function nextCheck(analyzedAt: number, trackingUntil: number): string | null {
 
 export function createReportLifecycle(item: FeedItem, nowISO: string, origin: ReportOrigin = 'feed'): ReportLifecycle {
   const now = time(nowISO)
-  const pending = item.repositoryAnalysis === 'pending'
-  const analyzedAt = pending ? null : time(item.updatedAt)
+  const pending = item.assessment === 'unverified' || item.analysis.confidence === 'unknown' || item.updatedAt === null
+  const analyzedAt = pending ? null : time(item.updatedAt!)
   const trackingUntil = (analyzedAt ?? now) + TRACKING_DAYS * DAY_MS
   return {
     articleId: item.id,
@@ -137,7 +145,7 @@ export function createReportLifecycle(item: FeedItem, nowISO: string, origin: Re
 }
 
 export function isTrackingActive(lifecycle: ReportLifecycle, nowISO: string): boolean {
-  return time(nowISO) < time(lifecycle.trackingUntil)
+  return lifecycle.revision > 0 && time(nowISO) < time(lifecycle.trackingUntil)
 }
 
 /** Scheduling never extends tracking. Expired reports are updated only by an explicit manual request. */
@@ -147,7 +155,7 @@ export function updateReportLifecycle(
   reason: 'scheduled' | 'manual',
 ): ReportLifecycle {
   const now = time(nowISO)
-  const until = time(lifecycle.trackingUntil)
+  const until = lifecycle.revision === 0 ? now + TRACKING_DAYS * DAY_MS : time(lifecycle.trackingUntil)
   const last = lifecycle.lastAnalyzedAt === null ? null : time(lifecycle.lastAnalyzedAt)
   if (last !== null && now < last) return lifecycle
   if (reason === 'scheduled' && (now >= until || !lifecycle.nextCheckAt || now < time(lifecycle.nextCheckAt))) return lifecycle
@@ -156,15 +164,17 @@ export function updateReportLifecycle(
   return {
     ...lifecycle,
     revision,
+    trackingUntil: iso(until),
     lastAnalyzedAt: analyzedAt,
     nextCheckAt: nextCheck(now, until),
-    history: [...lifecycle.history, { revision, analyzedAt, reason }],
+    history: [...lifecycle.history, { revision, analyzedAt, reason: lifecycle.revision === 0 ? 'initial' : reason }],
   }
 }
 
 /** Renewing tracking is a separate user choice and does not imply an analysis completed. */
 export function renewReportTracking(lifecycle: ReportLifecycle, nowISO: string): ReportLifecycle {
-  const now = time(nowISO)
+  if (lifecycle.revision === 0) return lifecycle
+  const now = Math.max(time(nowISO), lifecycle.lastAnalyzedAt ? time(lifecycle.lastAnalyzedAt) : 0)
   const until = now + TRACKING_DAYS * DAY_MS
   return { ...lifecycle, trackingUntil: iso(until), nextCheckAt: iso(now + DAY_MS) }
 }
@@ -200,19 +210,19 @@ export const historicalReports: FeedItem[] = [
     advisoryId: 'DEMO-2023-014',
     title: '旧HTTPクライアントのリダイレクト時の認証情報転送',
     product: 'SampleHTTP',
-    affectedVersions: '未確認',
-    fixedVersion: '未確認',
-    severity: 'medium',
+    affectedVersions: null,
+    fixedVersion: null,
+    severity: 'unknown',
     cvss: null,
     assessment: 'unverified',
     publishedAt: '2023-11-14T00:00:00.000Z',
     updatedAt: '2023-11-14T00:00:00.000Z',
     summary: '依存関係と製品名が一致する過去の情報が見つかりました。対象バージョンと影響条件は未評価です。',
-    exploitation: 'not-observed',
+    exploitation: 'unknown',
     affectedComponent: 'sample-http / redirect handler',
     remediation: [],
     repositoryAnalysis: 'pending',
-    analysis: { summary: '未評価', evidence: '既存の分析結果はありません。対象バージョンと影響条件を確認する必要があります。', confidence: 'low' },
+    analysis: { summary: '未評価', evidence: '既存の分析結果はありません。対象バージョンと影響条件を確認する必要があります。', confidence: 'unknown' },
     relevance: { kind: 'review', priority: 'review', reason: '間接依存の製品名が一致しました。影響範囲は未確認です。', packageName: 'sample-http', installedVersion: '0.8.2' },
     sources: [{ name: 'SampleHTTP アドバイザリ', url: 'https://example.org/advisories/demo-2023-014', kind: 'vendor' }],
   },

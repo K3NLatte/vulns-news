@@ -17,6 +17,7 @@ const now = '2026-09-25T12:00:00.000Z'
 describe('report input', () => {
   it.each([
     [' cve-2025-10000 ', 'CVE-2025-10000', 'cve'],
+    ['ＣＶＥ－２０２５－１００００', 'CVE-2025-10000', 'cve'],
     ['ghsa-jfh8-c2jp-5v3q', 'GHSA-JFH8-C2JP-5V3Q', 'ghsa'],
     ['HTTPS://EXAMPLE.ORG:443/advisory?id=123#details', 'https://example.org/advisory?id=123', 'url'],
   ])('normalizes %s without retrieving it', (input, key, kind) => {
@@ -56,9 +57,14 @@ describe('report input', () => {
     const item = createSubmittedReport('CVE-2025-10000', 'cve', now)
     expect(item.advisoryId).toBe('CVE-2025-10000')
     expect(item.cvss).toBeNull()
-    expect(item.product).toBe('未確認')
-    expect(item.affectedVersions).toBe('未確認')
-    expect(item.fixedVersion).toBe('未確認')
+    expect(item.severity).toBe('unknown')
+    expect(item.publishedAt).toBeNull()
+    expect(item.updatedAt).toBeNull()
+    expect(item.submittedAt).toBe(now)
+    expect(item.analysis.confidence).toBe('unknown')
+    expect(item.product).toBeNull()
+    expect(item.affectedVersions).toBeNull()
+    expect(item.fixedVersion).toBeNull()
     expect(item.repositoryAnalysis).toBe('pending')
     expect(item.remediation).toEqual([])
     expect(item.proofOfConcept).toBeUndefined()
@@ -152,7 +158,7 @@ describe('report tracking and revisions', () => {
 
   it('includes both reusable and unevaluated historical repository results', () => {
     expect(historicalReports.map((item) => item.repositoryAnalysis)).toEqual(['analyzed', 'pending'])
-    expect(historicalReports.every((item) => item.relevance && item.publishedAt < '2025')).toBe(true)
+    expect(historicalReports.every((item) => item.relevance && item.publishedAt! < '2025')).toBe(true)
     expect(historicalReports[1]!.cvss).toBeNull()
     expect(historicalReports[1]!.relevance!.score).toBeUndefined()
   })
@@ -168,7 +174,7 @@ it('keeps long accepted advisory IDs usable for saving, comments and review stat
   expect(item.id).toBe(createSubmittedReport(input.toLowerCase(), 'cve', now).id)
   expect(item.id).not.toBe(createSubmittedReport(input + '2', 'cve', now).id)
   const store = createWorkspaceStore({ local: null, session: null })
-  store.toggleSaved(item.id)
+  store.toggleSaved(item.id, { input, createdAt: now })
   store.addComment(item.id, '確認中')
   const repository = store.addRepository('https://github.com/example/project')
   if (!repository.ok) throw new Error(repository.message)
@@ -176,4 +182,25 @@ it('keeps long accepted advisory IDs usable for saving, comments and review stat
   expect(store.snapshot().savedIds).toEqual([item.id])
   expect(store.snapshot().comments[0]?.articleId).toBe(item.id)
   expect(store.getReviewStatus(repository.repository.id, item.id)).toBe('investigating')
+})
+
+it('checks normalized URL length and forbids invisible controls and credentials in query', () => {
+  expect(normalizeReportInput('https://example.org/' + 'あ'.repeat(226)).ok).toBe(false)
+  for (const suffix of ['\u0085', '\u200b', '\u202e', '\u2066', '%E2%80%AE', '?token=secret', '?session=private']) {
+    expect(normalizeReportInput('https://example.org/a' + suffix).ok).toBe(false)
+  }
+  const result = normalizeReportInput('https://example.org/' + 'あ'.repeat(10))
+  expect(result.ok).toBe(true)
+  if (result.ok) expect(normalizeReportInput(result.key)).toEqual(result)
+})
+it('does not activate tracking before the initial analysis and labels the first actual result as initial', () => {
+  const item = createSubmittedReport('CVE-2026-12345', 'cve', now)
+  const lifecycle = createReportLifecycle(item, now, 'submitted')
+  expect(isTrackingActive(lifecycle, now)).toBe(false)
+  expect(renewReportTracking(lifecycle, now)).toBe(lifecycle)
+  expect(updateReportLifecycle(lifecycle, now, 'manual').history[0]?.reason).toBe('initial')
+})
+
+it('does not reuse an unrelated advisory through a shared general CWE reference', () => {
+  expect(findExistingReport(mockFeed[0]!.sources[0]!.url, mockFeed)).toBeUndefined()
 })
