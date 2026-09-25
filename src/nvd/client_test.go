@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strconv"
 	"testing"
 )
@@ -21,10 +20,10 @@ func TestFetchNewestFirst(t *testing.T) {
 			t.Error("APIキーが送信されました")
 		}
 		if start == "0" {
-			fmt.Fprint(w, `{"totalResults":5,"vulnerabilities":[{"cve":{"id":"CVE-1"}}]}`)
+			fmt.Fprint(w, `{"totalResults":5,"vulnerabilities":[{"cve":{"id":"CVE-1","published":"2026-09-20T01:00:00.000","lastModified":"2026-09-20T02:00:00.000"}}]}`)
 			return
 		}
-		fmt.Fprint(w, `{"totalResults":5,"vulnerabilities":[{"cve":{"id":"CVE-3","descriptions":[{"lang":"ja","value":"三"}]}},{"cve":{"id":"CVE-4","descriptions":[]}},{"cve":{"id":"CVE-5","descriptions":[{"lang":"ja","value":"五"},{"lang":"en","value":"Five"}]}}]}`)
+		fmt.Fprint(w, `{"totalResults":5,"vulnerabilities":[{"cve":{"id":"CVE-3","published":"2026-09-22T01:00:00.000","lastModified":"2026-09-22T02:00:00.000","descriptions":[{"lang":"ja","value":"三"}]}},{"cve":{"id":"CVE-4","published":"2026-09-23T01:00:00.000","lastModified":"2026-09-23T02:00:00.000","descriptions":[]}},{"cve":{"id":"CVE-5","published":"2026-09-24T01:00:00.000","lastModified":"2026-09-24T02:00:00.000","descriptions":[{"lang":"ja","value":"五"},{"lang":"en","value":"Five"}]}}]}`)
 	}))
 	defer server.Close()
 
@@ -36,9 +35,8 @@ func TestFetchNewestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []CVE{{"CVE-5", "Five"}, {"CVE-4", ""}, {"CVE-3", "三"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("取得結果 = %+v, want %+v", got, want)
+	if len(got) != 3 || got[0].ID != "CVE-5" || got[0].Description != "Five" || got[1].ID != "CVE-4" || got[2].ID != "CVE-3" || got[2].Description != "三" {
+		t.Fatalf("取得結果 = %+v", got)
 	}
 	if first, second := <-requests, <-requests; first != "0:1" || second != "2:3" {
 		t.Fatalf("リクエスト = %s, %s", first, second)
@@ -53,7 +51,7 @@ func TestFetchAcrossPageBoundary(t *testing.T) {
 		requests <- fmt.Sprintf("%d:%d", start, size)
 		items := make([]map[string]any, size)
 		for i := range items {
-			items[i] = map[string]any{"cve": map[string]any{"id": fmt.Sprintf("CVE-%d", start+i)}}
+			items[i] = map[string]any{"cve": map[string]any{"id": fmt.Sprintf("CVE-%d", start+i), "published": "2026-09-24T01:00:00.000", "lastModified": "2026-09-24T02:00:00.000"}}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"totalResults": 2001, "vulnerabilities": items})
 	}))
