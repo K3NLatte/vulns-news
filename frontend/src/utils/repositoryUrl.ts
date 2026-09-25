@@ -47,4 +47,3 @@ export function parseRepositoryUrl(input: unknown): RepositoryUrlResult {
   const label = `${owner}/${repository}`
   return { ok: true, url: `https://github.com/${label.toLowerCase()}`, label }
 }
-
