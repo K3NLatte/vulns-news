@@ -333,12 +333,19 @@ const repositoryProfiles: RepositoryProfileEntry[][] = [
   ],
 ]
 
+// Classification belongs to the scoped data, before search and relevance ordering.
+const pendingRepositoryIds = new Set(['demo-005', 'demo-009', 'demo-012'])
+
 export function repositoryFeedFor(repositoryLabel: string): FeedItem[] {
   const normalized = repositoryLabel.toLowerCase()
   const profileIndex = [...normalized].reduce((sum, character) => sum + character.codePointAt(0)!, 0) % 3
-  if (profileIndex === 0) return mockFeed.filter(item => item.relevance !== undefined)
-  return repositoryProfiles[profileIndex - 1]!.flatMap(({ id, relevance }) => {
-    const item = mockFeed.find(article => article.id === id)
-    return item ? [{ ...item, relevance: { ...relevance } }] : []
-  })
+  const items = profileIndex === 0 ? mockFeed.filter(item => item.relevance !== undefined)
+    : repositoryProfiles[profileIndex - 1]!.flatMap(({ id, relevance }) => {
+      const item = mockFeed.find(article => article.id === id)
+      return item ? [{ ...item, relevance: { ...relevance } }] : []
+    })
+  return items.map(item => ({
+    ...item,
+    repositoryAnalysis: pendingRepositoryIds.has(item.id) ? 'pending' : 'analyzed',
+  }))
 }

@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, effectScope, onScopeDispose, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import { mockFeed, repositoryFeedFor } from '../mocks/feed'
 import { parseRepositoryUrl } from '../services/feed'
 import { createReportLifecycle, createSubmittedReport, findExistingReport, historicalReports, isTrackingActive, normalizeReportInput, renewReportTracking, updateReportLifecycle } from '../services/reports'
@@ -7,12 +7,56 @@ import type { InvestigationJob } from '../types/investigation'
 import type { ReportLifecycle, SavedReportReference } from '../types/reports'
 import { isRecord, isStoredDate, MAX_ACTIVE_REPORT_JOBS, MAX_REPORT_JOBS, MAX_REPORT_SESSION_LENGTH, parseStoredJobs, parseStoredLifecycle } from '../services/reportSession'
 
-const storageKey = 'vulns-news-report-lab-v1'
+const storagePrefix = 'vulns-news-report-lab-v2'
 const active = (job: InvestigationJob) => ['queued', 'collecting', 'analyzing'].includes(job.status)
 // Local scenario timing, independent of backend progress or scheduling contracts.
 const jobDuration = 6000
 
-export function useReportLibrary() {
+/** Each browser-local profile owns its requests, results and tracking state. */
+export function useReportLibrary(owner: MaybeRefOrGetter<string | null | undefined> = null) {
+  // Keep current-tab work available across profile switches even when storage fails.
+  const sessions = new Map<string, string>()
+  const keyForOwner = () => {
+    const id = toValue(owner)
+    return id == null ? `${storagePrefix}:guest` : `${storagePrefix}:user:${encodeURIComponent(id)}`
+  }
+  let scope = effectScope()
+  const current = shallowRef(scope.run(() => createReportLibrary(keyForOwner(), sessions))!)
+  watch(keyForOwner, key => {
+    // Disposal saves pending changes for the old owner and stops its queued watchers
+    // and timer before any new-owner state becomes available.
+    scope.stop()
+    scope = effectScope()
+    current.value = scope.run(() => createReportLibrary(key, sessions))!
+  }, { flush: 'sync' })
+  onScopeDispose(() => scope.stop())
+
+  return {
+    now: computed(() => current.value.now.value),
+    jobs: computed(() => current.value.jobs.value),
+    catalog: computed(() => current.value.catalog.value),
+    lifecycles: computed(() => current.value.lifecycles.value),
+    reports: computed(() => current.value.reports.value),
+    publicationQueue: computed(() => current.value.publicationQueue.value),
+    submissionError: computed(() => current.value.submissionError.value),
+    storageError: computed(() => current.value.storageError.value),
+    referenceFor: (id: string) => current.value.referenceFor(id),
+    submit: (input: string) => current.value.submit(input),
+    reanalyze: (id: string) => current.value.reanalyze(id),
+    renew: (id: string) => current.value.renew(id),
+    retry: (id: string) => current.value.retry(id),
+    cancel: (id: string) => current.value.cancel(id),
+    publish: () => current.value.publish(),
+    scanRepository: (url: string) => current.value.scanRepository(url),
+    scanFor: (url: string) => current.value.scanFor(url),
+    additions: (url: string) => current.value.additions(url),
+    activeJobFor: (id: string) => current.value.activeJobFor(id),
+    repositoryItems: (url: string) => current.value.repositoryItems(url),
+    knownRepositoryItems: (url: string) => current.value.knownRepositoryItems(url),
+  }
+}
+
+function createReportLibrary(storageKey: string, sessions: Map<string, string>) {
   const now = ref(new Date().toISOString())
   const jobs = ref<InvestigationJob[]>([])
   const created = ref<FeedItem[]>([])
@@ -131,8 +175,8 @@ export function useReportLibrary() {
     if (!parsed.ok) { submissionError.value = parsed.message; return }
     enqueue('submission', parsed.key)
   }
-  function reanalyze(id: string) { enqueue('reanalysis', id) }
-  function scanRepository(url: string) { enqueue('repository', url) }
+  function reanalyze(id: string) { return enqueue('reanalysis', id) }
+  function scanRepository(url: string) { return enqueue('repository', url) }
   function retry(id: string) {
     const job = jobs.value.find(job => job.id === id)
     if (!job || job.status !== 'failed') return
@@ -158,7 +202,10 @@ export function useReportLibrary() {
   function repositoryItems(url: string) {
     const parsed = parseRepositoryUrl(url)
     const profile = parsed.ok ? repositoryFeedFor(parsed.label) : []
-    return catalog.value.filter(item => parsed.ok && repositoryLinks.value[parsed.url]?.includes(item.id)).map(item => ({ ...item, ...profile.find(match => match.id === item.id), repositoryAnalysis: item.repositoryAnalysis ?? 'analyzed' as const }))
+    return catalog.value.filter(item => parsed.ok && repositoryLinks.value[parsed.url]?.includes(item.id)).map(item => {
+      const match = profile.find(candidate => candidate.id === item.id)
+      return { ...item, ...match, repositoryAnalysis: match?.repositoryAnalysis ?? item.repositoryAnalysis ?? 'pending' as const }
+    })
   }
   function additions(url: string) {
     return url ? repositoryItems(url) : catalog.value.filter(item => publishedIds.value.includes(item.id))
@@ -168,7 +215,8 @@ export function useReportLibrary() {
 
   // Restore request metadata and local lifecycle history, never serialized report content.
   try {
-    const raw = sessionStorage.getItem(storageKey)
+    // The legacy unowned key cannot safely be assigned to any profile or guest.
+    const raw = sessions.get(storageKey) ?? sessionStorage.getItem(storageKey)
     if (raw) {
       if (raw.length >= MAX_REPORT_SESSION_LENGTH) throw new Error('Session exceeds the storage limit')
       const state: unknown = JSON.parse(raw)
@@ -205,20 +253,27 @@ export function useReportLibrary() {
         }
       }
       if (Array.isArray(state.publishedIds)) publishedIds.value = [...new Set(state.publishedIds.slice(0, MAX_REPORT_JOBS).filter((id): id is string => typeof id === 'string' && Object.hasOwn(lifecycles.value, id) && lifecycles.value[id]!.revision > 0))]
+      if (Array.isArray(state.publicationQueue)) {
+        const queued = state.publicationQueue.slice(0, MAX_REPORT_JOBS).filter((id): id is string => typeof id === 'string'
+          && Object.hasOwn(lifecycles.value, id) && lifecycles.value[id]!.revision > 0)
+        publicationQueue.value = [...new Set([...publicationQueue.value, ...queued])]
+      }
       publicationQueue.value = publicationQueue.value.filter(id => !publishedIds.value.includes(id))
     }
   } catch { storageError.value = '解析履歴を読み込めませんでした。この画面では新しく依頼できます。' }
-  watch([jobs, publishedIds, renewals, lifecycles], () => {
+  function persist() {
     try {
       const savedLifecycles = Object.fromEntries(Object.entries(lifecycles.value).map(([id, lifecycle]) => [id, { ...lifecycle, history: lifecycle.history.slice(-MAX_REPORT_JOBS) }]))
-      const raw = JSON.stringify({ periodicPublishedAt: periodicReport.publishedAt, jobs: jobs.value, publishedIds: publishedIds.value, renewals: renewals.value, lifecycles: savedLifecycles })
+      const raw = JSON.stringify({ periodicPublishedAt: periodicReport.publishedAt, jobs: jobs.value, publishedIds: publishedIds.value, publicationQueue: publicationQueue.value, renewals: renewals.value, lifecycles: savedLifecycles })
       if (raw.length >= MAX_REPORT_SESSION_LENGTH) throw new Error('Session exceeds the storage limit')
+      sessions.set(storageKey, raw)
       sessionStorage.setItem(storageKey, raw)
     } catch { storageError.value = '解析履歴を保存できません。ページを閉じると今回の履歴が失われます。' }
-  }, { deep: true })
+  }
+  watch([jobs, publishedIds, publicationQueue, renewals, lifecycles], persist, { deep: true })
 
-  const began = Date.now()
-  let editionQueued = false
+  const began = Date.parse(periodicReport.publishedAt)
+  let editionQueued = publicationQueue.value.includes(periodicReport.id) || publishedIds.value.includes(periodicReport.id)
   const timer = setInterval(() => {
     now.value = new Date().toISOString()
     if (document.visibilityState === 'hidden') return
@@ -235,7 +290,10 @@ export function useReportLibrary() {
       publicationQueue.value.push(periodicReport.id)
     }
   }, 1000)
-  onScopeDispose(() => clearInterval(timer))
+  onScopeDispose(() => {
+    clearInterval(timer)
+    persist()
+  })
   return { now, jobs, catalog, referenceFor, lifecycles, reports, publicationQueue, submissionError, storageError, submit, reanalyze, renew, retry, cancel, publish, scanRepository, scanFor, additions, activeJobFor, repositoryItems,
     knownRepositoryItems: (url: string) => { const parsed = parseRepositoryUrl(url); return parsed.ok ? repositoryFeedFor(parsed.label) : [] },
   }

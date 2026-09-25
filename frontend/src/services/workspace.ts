@@ -19,7 +19,15 @@ const profileKey = (name: string) => `vulns-news:workspace:profile:v1:${encodeUR
 const statuses: ReviewStatus[] = ['unreviewed', 'investigating', 'resolved', 'not-affected']
 const emptyData = (): WorkspaceData => ({ repositories: [], activeRepositoryId: null, savedIds: [], savedReportReferences: {}, comments: [], reviewStatuses: {} })
 const copy = <T>(value: T): T => structuredClone(value)
-const normalizedName = (name: string) => name.normalize('NFKC').toLocaleLowerCase('ja-JP')
+const legacyNormalizedName = (name: string) => name.normalize('NFKC').toLocaleLowerCase('ja-JP')
+function normalizedName(name: string): string {
+  let normalized = legacyNormalizedName(name)
+  while (normalized !== name) {
+    name = normalized
+    normalized = legacyNormalizedName(name)
+  }
+  return normalized
+}
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isText = (value: unknown, limit: number): value is string => typeof value === 'string'
   && value.length > 0 && value.length <= limit
@@ -143,14 +151,26 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
   }
   const profileVersions = new Map<string, string | null>()
   const profiles = new Map<string, { user: WorkspaceUser; data: WorkspaceData }>()
-  const readProfile = (name: string) => {
+  const unsavedProfiles = new Map<string, string>()
+  const readProfile = (name: string, legacyName = name) => {
     const cached = profiles.get(name)
-    if (cached) return cached
+    // Only unsaved drafts need an in-memory override. Clean profiles must see
+    // saves made by another tab when the user explicitly logs in again.
+    if (cached && (unsavedProfiles.has(name) || storage.local === null)) return cached
     // With no storage adapter, profiles remain in memory. A failed read from an
     // existing adapter must not be treated as permission to replace that profile.
     if (storage.local === null) return null
-    const result = read(storage.local, profileKey(name))
-    if (result.kind === 'missing') { profileVersions.set(name, null); return null }
+    let result = read(storage.local, profileKey(name))
+    let legacyProfile = false
+    if (result.kind === 'missing' && legacyName !== name) {
+      result = read(storage.local, profileKey(legacyName))
+      legacyProfile = result.kind === 'value'
+    }
+    if (result.kind === 'missing') {
+      profiles.delete(name)
+      profileVersions.set(name, null)
+      return null
+    }
     if (result.kind === 'failed') return undefined
     const stored = result.value
     if (!isRecord(stored) || stored.version !== 1 || !validateUser(stored.user)
@@ -158,8 +178,11 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
       invalidStoredData()
       return undefined
     }
+    // Older keys may not be normalization fixed points. Keep their original
+    // record intact, and establish the canonical key before using it.
+    if (legacyProfile && !write(storage.local, profileKey(name), stored)) return undefined
     const profile = { user: copy(stored.user), data: restoreData(stored.data) }
-    profileVersions.set(name, result.raw)
+    profileVersions.set(name, legacyProfile ? JSON.stringify(stored) : result.raw)
     profiles.set(name, profile)
     return profile
   }
@@ -171,17 +194,19 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
     const active = activeResult.value
     // The stored key is normalized; normalization can expand a 40-character name.
     // Validate its original display name when loading the corresponding profile.
-    if (isRecord(active) && active.version === 1 && isText(active.name, maxStoredLength)
-      && normalizedName(active.name) === active.name) {
-      const profile = readProfile(active.name)
-      if (profile) { user = profile.user; data = profile.data; activeProfile = active.name }
-      else remove(storage.session, activeKey)
+    if (isRecord(active) && active.version === 1 && isText(active.name, maxStoredLength)) {
+      const name = normalizedName(active.name)
+      const profile = readProfile(name, active.name)
+      if (profile) { user = profile.user; data = profile.data; activeProfile = name }
+      else if (profile === null) remove(storage.session, activeKey)
     } else { invalidStoredData(); remove(storage.session, activeKey) }
   }
 
   const persist = () => {
     if (user && activeProfile !== null) {
       profiles.set(activeProfile, { user, data })
+      const name = activeProfile
+      const failed = () => { unsavedProfiles.set(name, storageError); return false }
       const key = profileKey(activeProfile)
       // Avoid replacing changes made since this tab loaded the profile. This is
       // conflict detection for local drafts, not a cross-tab locking mechanism.
@@ -189,17 +214,19 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
         try {
           if (storage.local.getItem(key) !== profileVersions.get(activeProfile)) {
             storageError = '別のタブで保存内容が変更されています。この画面の変更は未保存です。必要な内容を控えてから再読み込みしてください。'
-            return false
+            return failed()
           }
         } catch {
           storageError = '保存済みの内容を確認できないため上書きしていません。この画面の変更は未保存です。'
-          return false
+          return failed()
         }
       }
       const value = { version: 1, user, data }
       const saved = write(storage.local, key, value)
-      if (saved) profileVersions.set(activeProfile, JSON.stringify(value))
-      return saved
+      if (!saved) return failed()
+      profileVersions.set(activeProfile, JSON.stringify(value))
+      unsavedProfiles.delete(activeProfile)
+      return true
     }
     guest = data
     return write(storage.session, guestKey, { version: 1, data: guest })
@@ -214,7 +241,7 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
       if (/[\r\n\t]/u.test(displayName)) throw new Error('表示名には改行やタブを使用できません。')
       beginChange()
       const key = normalizedName(name)
-      let profile = readProfile(key)
+      let profile = readProfile(key, legacyNormalizedName(name))
       if (profile === undefined) throw new Error('保存済みのアカウントを読み込めないため、ログインできませんでした。保存データは変更していません。')
       const isNew = profile === null
       if (!profile) {
@@ -223,13 +250,33 @@ export function createWorkspaceStore(storage: WorkspaceStorage = {
         transferred.comments = transferred.comments.map(comment => ({ ...comment, authorId: newUser.id, authorName: name }))
         profile = { user: newUser, data: transferred }
       }
+      const previous = { user, data, activeProfile }
+      const memoryOnly = storage.local === null || storage.session === null
+      // Establish the session first so a rejected marker write cannot leave a
+      // half-created account containing a second copy of the guest workspace.
+      if (!memoryOnly && !write(storage.session, activeKey, { version: 1, name: key })) {
+        throw new Error('ログイン状態を保存できませんでした。保存領域を確認して再試行してください。')
+      }
       user = profile.user
       data = profile.data
       activeProfile = key
-      const saved = persist()
+      const saved = isNew || memoryOnly ? persist() : true
+      if (!saved && !memoryOnly) {
+        const failure = storageError
+        user = previous.user
+        data = previous.data
+        activeProfile = previous.activeProfile
+        profiles.delete(key)
+        unsavedProfiles.delete(key)
+        if (activeProfile) write(storage.session, activeKey, { version: 1, name: activeProfile })
+        else remove(storage.session, activeKey)
+        storageError = failure
+        throw new Error('アカウントを保存できませんでした。保存領域を確認して再試行してください。')
+      }
       if (saved) {
-        const sessionSaved = write(storage.session, activeKey, { version: 1, name: key })
+        const sessionSaved = !memoryOnly || write(storage.session, activeKey, { version: 1, name: key })
         if (sessionSaved && isNew && write(storage.session, guestKey, { version: 1, data: emptyData() })) guest = emptyData()
+        storageError = unsavedProfiles.get(key) ?? storageError
       } else remove(storage.session, activeKey)
     },
     logout() {

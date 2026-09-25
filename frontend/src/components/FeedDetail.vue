@@ -15,6 +15,7 @@ import {
   MessageSquare,
 } from '@lucide/vue'
 import type { FeedItem } from '../types/feed'
+import { canReviewRepositoryArticle } from '../services/repositoryAssessment'
 import type { FeedComment, ReviewStatus } from '../types/workspace'
 import {
   confidenceLabels,
@@ -36,6 +37,7 @@ const props = withDefaults(defineProps<{
   reportJob?: InvestigationJob
   item: FeedItem
   personalized: boolean
+  repositoryLabel?: string
   expanded?: boolean
   fullFeatures?: boolean
   canReview?: boolean
@@ -45,6 +47,7 @@ const props = withDefaults(defineProps<{
   currentUserId?: string
   reviewStatus?: ReviewStatus
 }>(), {
+  repositoryLabel: '',
   expanded: false,
   fullFeatures: true,
   canReview: true,
@@ -82,7 +85,9 @@ const reviewStatuses: { value: ReviewStatus; label: string }[] = [
   { value: 'not-affected', label: '影響なし' },
 ]
 
-const pending = computed(() => props.personalized && props.item.repositoryAnalysis === 'pending')
+const pending = computed(() => props.personalized && !canReviewRepositoryArticle(props.item))
+const reviewEnabled = computed(() => props.fullFeatures && props.personalized && props.canReview
+  && canReviewRepositoryArticle(props.item))
 const copied = ref(false)
 const copying = ref(false)
 const copyError = ref('')
@@ -123,6 +128,7 @@ async function copyId() {
 }
 
 function updateReviewStatus(event: Event) {
+  if (!reviewEnabled.value) return
   const value = (event.target as HTMLSelectElement).value
   const option = reviewStatuses.find(status => status.value === value)
   if (option) emit('update:review-status', option.value)
@@ -206,6 +212,7 @@ function updateReviewStatus(event: Event) {
       <p v-if="copyError" class="input-error" role="alert">{{ copyError }}</p>
 
       <component :is="expanded ? 'h1' : 'h2'" id="detail-title" tabindex="-1">{{ item.title }}</component>
+      <p v-if="personalized && repositoryLabel" class="detail-label">対象リポジトリ：{{ repositoryLabel }}</p>
       <div class="detail-meta">
         <span class="detail-cvss">
           <span class="cvss-label">CVSS</span>
@@ -241,7 +248,7 @@ function updateReviewStatus(event: Event) {
       </dl>
 
       <section
-        v-if="personalized && item.relevance"
+        v-if="personalized && item.relevance && !pending"
         class="relevance-section"
         aria-labelledby="relevance-heading"
       >
@@ -272,7 +279,7 @@ function updateReviewStatus(event: Event) {
       </section>
 
       <section
-        v-if="fullFeatures && personalized && canReview"
+        v-if="reviewEnabled"
         class="detail-section triage-section"
         aria-labelledby="review-heading"
       >

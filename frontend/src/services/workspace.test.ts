@@ -13,6 +13,7 @@ class MemoryStorage {
 }
 const makeStorage = () => ({ session: new MemoryStorage(), local: new MemoryStorage() })
 const guestKey = 'vulns-news:workspace:guest:v1'
+const activeKey = 'vulns-news:workspace:active:v1'
 const profileKey = (name: string) => `vulns-news:workspace:profile:v1:${encodeURIComponent(name)}`
 const createRepository = (store: ReturnType<typeof createWorkspaceStore>, name = 'frontend') => {
   const result = store.addRepository(`https://github.com/example/${name}`)
@@ -195,7 +196,8 @@ describe('workspace persistence', () => {
     }
     const store = createWorkspaceStore(failing)
     store.addComment('demo-001', '保存状態を確認')
-    store.login('Alice')
+    expect(() => store.login('Alice')).toThrow('アカウントを保存できません')
+    expect(store.snapshot().user).toBeNull()
     expect(store.snapshot().comments).toHaveLength(1)
     expect(store.snapshot().storageError).toContain('保存できません')
     store.logout()
@@ -240,7 +242,9 @@ describe('workspace persistence', () => {
     }
     const store = createWorkspaceStore({ local: storage.local, session })
     store.toggleSaved('guest-work')
-    store.login('Alice')
+    expect(() => store.login('Alice')).toThrow('ログイン状態を保存できません')
+    expect(store.snapshot().user).toBeNull()
+    expect(storage.local.getItem(profileKey('alice'))).toBeNull()
     expect(store.snapshot().storageError).not.toBe('')
     expect(createWorkspaceStore(storage).snapshot().savedIds).toEqual(['guest-work'])
     store.logout()
@@ -409,7 +413,12 @@ it('preserves newer profile data when re-entering a cached profile changed in an
   first.login('Alice')
 
   expect(storage.local.getItem(profileKey('alice'))).toBe(newerSave)
-  expect(first.snapshot().storageError).toContain('別のタブ')
+  expect(first.snapshot().storageError).toBe('')
+  expect(first.snapshot().savedIds).toEqual(['original', 'other-tab-save'])
+  first.toggleSaved('after-relogin')
+  const restored = createWorkspaceStore(storage)
+  expect(restored.snapshot().user?.displayName).toBe('Alice')
+  expect(restored.snapshot().savedIds).toEqual(['original', 'other-tab-save', 'after-relogin'])
 })
 
 
@@ -484,4 +493,146 @@ it('accepts a reactive saved reference without leaking the caller object into pe
   store.toggleSaved(item.id, reference)
   reference.input = 'CVE-2026-99999'
   expect(store.snapshot().savedReportReferences[item.id]?.input).toBe('CVE-2026-12345')
+})
+
+describe('profile login recovery', () => {
+  it('keeps genuine unsaved changes across logout and login without replacing another tab save', () => {
+    const storage = makeStorage()
+    const first = createWorkspaceStore(storage)
+    first.login('Alice')
+    first.toggleSaved('original')
+    const second = createWorkspaceStore({ local: storage.local, session: new MemoryStorage() })
+    second.login('Alice')
+    second.toggleSaved('other-tab-save')
+    const newerSave = storage.local.getItem(profileKey('alice'))
+
+    first.toggleSaved('unsaved-draft')
+    expect(first.snapshot().storageError).toContain('別のタブ')
+    first.logout()
+    first.login('Alice')
+    expect(first.snapshot().savedIds).toEqual(['original', 'unsaved-draft'])
+    expect(first.snapshot().storageError).toContain('別のタブ')
+    first.toggleSaved('another-unsaved-draft')
+    expect(storage.local.getItem(profileKey('alice'))).toBe(newerSave)
+    expect(first.snapshot().savedIds).toContain('another-unsaved-draft')
+  })
+
+  it('does not rewrite a clean existing profile just to log in', () => {
+    const storage = makeStorage()
+    const first = createWorkspaceStore(storage)
+    first.login('Alice')
+    first.toggleSaved('account-work')
+    first.logout()
+    const local = {
+      getItem: (key: string) => storage.local.getItem(key),
+      setItem: () => { throw new Error('Unexpected profile write') },
+      removeItem: (key: string) => storage.local.removeItem(key),
+    }
+    const second = createWorkspaceStore({ local, session: new MemoryStorage() })
+    second.login('Alice')
+    expect(second.snapshot().user?.displayName).toBe('Alice')
+    expect(second.snapshot().savedIds).toEqual(['account-work'])
+    expect(second.snapshot().storageError).toBe('')
+  })
+
+  it('retains a quota-failed draft until it is saved and then refreshes its clean cache', () => {
+    const storage = makeStorage()
+    let failWrite = false
+    const local = {
+      getItem: (key: string) => storage.local.getItem(key),
+      setItem: (key: string, value: string) => {
+        if (failWrite) throw new Error('Quota exceeded')
+        storage.local.setItem(key, value)
+      },
+      removeItem: (key: string) => storage.local.removeItem(key),
+    }
+    const first = createWorkspaceStore({ local, session: storage.session })
+    first.login('Alice')
+    failWrite = true
+    first.toggleSaved('draft')
+    first.logout()
+    failWrite = false
+    first.login('Alice')
+    expect(first.snapshot().savedIds).toEqual(['draft'])
+    expect(first.snapshot().storageError).toContain('保存できません')
+    first.toggleSaved('recovered')
+    expect(first.snapshot().storageError).toBe('')
+    first.logout()
+
+    const second = createWorkspaceStore({ local: storage.local, session: new MemoryStorage() })
+    second.login('Alice')
+    second.toggleSaved('other-tab-save')
+    first.login('Alice')
+    expect(first.snapshot().savedIds).toEqual(['draft', 'recovered', 'other-tab-save'])
+  })
+
+  it('retries a rejected new login without duplicating or losing guest work', () => {
+    const storage = makeStorage()
+    let failWrite = true
+    const local = {
+      getItem: (key: string) => storage.local.getItem(key),
+      setItem: (key: string, value: string) => {
+        if (failWrite) throw new Error('Quota exceeded')
+        storage.local.setItem(key, value)
+      },
+      removeItem: (key: string) => storage.local.removeItem(key),
+    }
+    const store = createWorkspaceStore({ local, session: storage.session })
+    store.addComment('demo-001', '残すコメント')
+    expect(() => store.login('Alice')).toThrow('アカウントを保存できません')
+    expect(store.snapshot().user).toBeNull()
+    expect(store.snapshot().comments[0]?.authorId).toBe('guest')
+    expect(storage.session.getItem(activeKey)).toBeNull()
+    expect(storage.local.getItem(profileKey('alice'))).toBeNull()
+
+    failWrite = false
+    store.login('Alice')
+    const restored = createWorkspaceStore(storage)
+    expect(restored.snapshot().user?.id).toBe(store.snapshot().user?.id)
+    expect(restored.snapshot().comments).toHaveLength(1)
+    restored.logout()
+    expect(restored.snapshot().comments).toEqual([])
+  })
+
+  it.each([
+    ['\u03AA\u0301', '\u0390'],
+    ['T\u0308', '\u1E97'],
+    ['Ａｌｉｃｅ', 'alice'],
+  ])('restores and reuses canonically equivalent profile names: %s', (displayName, equivalentName) => {
+    const storage = makeStorage()
+    const store = createWorkspaceStore(storage)
+    store.login(displayName)
+    store.toggleSaved('account-work')
+    const userId = store.snapshot().user?.id
+    const marker = JSON.parse(storage.session.getItem(activeKey)!)
+    expect(marker.name.normalize('NFKC').toLocaleLowerCase('ja-JP')).toBe(marker.name)
+
+    const restored = createWorkspaceStore(storage)
+    expect(restored.snapshot()).toEqual(store.snapshot())
+    restored.logout()
+    restored.login(equivalentName)
+    expect(restored.snapshot().user?.id).toBe(userId)
+    expect(restored.snapshot().savedIds).toEqual(['account-work'])
+  })
+
+  it('restores a legacy noncanonical active key without removing its original saved record', () => {
+    const storage = makeStorage()
+    const store = createWorkspaceStore(storage)
+    store.login('T\u0308')
+    store.toggleSaved('legacy-work')
+    const canonicalName = JSON.parse(storage.session.getItem(activeKey)!).name as string
+    const raw = storage.local.getItem(profileKey(canonicalName))!
+    const legacyName = 't\u0308'
+    storage.local.removeItem(profileKey(canonicalName))
+    storage.local.setItem(profileKey(legacyName), raw)
+    storage.session.setItem(activeKey, JSON.stringify({ version: 1, name: legacyName }))
+
+    const restored = createWorkspaceStore(storage)
+    expect(restored.snapshot()).toEqual(store.snapshot())
+    expect(storage.local.getItem(profileKey(legacyName))).toBe(raw)
+    restored.logout()
+    restored.login('\u1E97')
+    expect(restored.snapshot().user?.id).toBe(store.snapshot().user?.id)
+    expect(restored.snapshot().savedIds).toEqual(['legacy-work'])
+  })
 })

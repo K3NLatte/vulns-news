@@ -1,16 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { effectScope, nextTick, toRaw } from 'vue'
+import { effectScope, nextTick, ref, toRaw } from 'vue'
 import { getSavedReportItems, historicalReports } from '../services/reports'
 import { useReportLibrary } from './useReportLibrary'
 
-const storageKey = 'vulns-news-report-lab-v1'
+const storageKey = 'vulns-news-report-lab-v2:guest'
+const ownerStorageKey = (id: string) => `vulns-news-report-lab-v2:user:${encodeURIComponent(id)}`
 const scopes: ReturnType<typeof effectScope>[] = []
 let stored: Map<string, string>
 
-function mountLibrary() {
+function mountLibrary(owner?: Parameters<typeof useReportLibrary>[0]) {
   const scope = effectScope()
   scopes.push(scope)
-  const library = scope.run(() => useReportLibrary())!
+  const library = scope.run(() => useReportLibrary(owner))!
   return { library, stop: () => scope.stop() }
 }
 
@@ -416,4 +417,132 @@ it('keeps a restorable original submission reference when a later request uses a
   expect(reference).toEqual({ input: 'https://nvd.nist.gov/vuln/detail/CVE-2026-12345', createdAt: '2026-09-25T03:00:00.000Z' })
   expect(getSavedReportItems({ [id]: reference })[0]?.id).toBe(id)
   expect(library.referenceFor('demo-001')).toBeUndefined()
+})
+
+
+describe('report library profile boundaries', () => {
+  it('switches guest, Alice and Bob requests synchronously and restores each owner separately', async () => {
+    const owner = ref<string | null>(null)
+    const first = mountLibrary(owner)
+    const library = first.library
+    library.submit('CVE-2026-10001')
+    const guestId = library.jobs.value[0]!.reportIds[0]!
+    owner.value = 'user:alice'
+    expect(library.jobs.value).toEqual([])
+    expect(library.referenceFor(guestId)).toBeUndefined()
+    expect(library.catalog.value.some(item => item.id === guestId)).toBe(false)
+
+    library.submit('CVE-2026-10002')
+    const aliceId = library.jobs.value[0]!.reportIds[0]!
+    library.submit('invalid')
+    expect(library.submissionError.value).not.toBe('')
+    owner.value = 'user:bob'
+    expect(library.jobs.value).toEqual([])
+    expect(library.submissionError.value).toBe('')
+    expect(library.referenceFor(aliceId)).toBeUndefined()
+    expect(library.catalog.value.some(item => item.id === aliceId)).toBe(false)
+    expect(Object.hasOwn(library.lifecycles.value, aliceId)).toBe(false)
+    library.submit('CVE-2026-10003')
+
+    owner.value = null
+    expect(library.jobs.value.map(job => job.key)).toEqual(['CVE-2026-10001'])
+    expect(library.referenceFor(guestId)?.input).toBe('CVE-2026-10001')
+    owner.value = 'user:alice'
+    expect(library.jobs.value.map(job => job.key)).toEqual(['CVE-2026-10002'])
+    expect(library.referenceFor(aliceId)?.input).toBe('CVE-2026-10002')
+    await nextTick()
+    first.stop()
+
+    const restored = mountLibrary(() => 'user:bob').library
+    expect(restored.jobs.value.map(job => job.key)).toEqual(['CVE-2026-10003'])
+    expect(restored.referenceFor(aliceId)).toBeUndefined()
+    expect(restored.catalog.value.some(item => item.id === guestId)).toBe(false)
+  })
+
+  it('isolates repository results, tracking renewals and published or queued reports', async () => {
+    const owner = ref<string | null>('user:alice')
+    const { library } = mountLibrary(owner)
+    const repository = 'https://github.com/example/frontend'
+    const originalDeadline = library.lifecycles.value['history-001']!.trackingUntil
+    library.scanRepository(repository)
+    library.renew('history-001')
+    library.submit('CVE-2026-10002')
+    const aliceId = library.jobs.value[0]!.reportIds[0]!
+    await vi.advanceTimersByTimeAsync(6500)
+    library.publish()
+    await vi.advanceTimersByTimeAsync(24_000)
+    expect(library.publicationQueue.value).toContain('demo-013')
+
+    owner.value = 'user:bob'
+    expect(library.repositoryItems(repository)).toEqual([])
+    expect(library.scanFor(repository)).toBeUndefined()
+    expect(library.lifecycles.value['history-001']!.trackingUntil).toBe(originalDeadline)
+    expect(library.additions('')).toEqual([])
+    expect(library.publicationQueue.value).toEqual([])
+    expect(library.reports.value.some(report => report.item.id === aliceId)).toBe(false)
+
+    owner.value = 'user:alice'
+    expect(library.scanFor(repository)?.status).toBe('completed')
+    expect(library.repositoryItems(repository).length).toBeGreaterThan(0)
+    expect(library.lifecycles.value['history-001']!.trackingUntil).not.toBe(originalDeadline)
+    expect(library.additions('').map(item => item.id)).toContain(aliceId)
+    expect(library.publicationQueue.value).toEqual(['demo-013'])
+  })
+
+  it('does not write queued old-owner changes or finish old-owner jobs in a new scope', async () => {
+    const owner = ref<string | null>('user:alice')
+    const { library } = mountLibrary(owner)
+    library.submit('CVE-2026-10002')
+    const aliceId = library.jobs.value[0]!.reportIds[0]!
+    // Switch before the deep persistence watcher gets its next tick.
+    owner.value = 'user:bob'
+    library.submit('CVE-2026-10003')
+    await vi.advanceTimersByTimeAsync(6500)
+
+    expect(library.jobs.value.map(job => job.key)).toEqual(['CVE-2026-10003'])
+    expect(library.publicationQueue.value).not.toContain(aliceId)
+    expect(library.referenceFor(aliceId)).toBeUndefined()
+    expect(JSON.parse(stored.get(ownerStorageKey('user:alice'))!).jobs.map((job: { key: string }) => job.key)).toEqual(['CVE-2026-10002'])
+    expect(stored.get(ownerStorageKey('user:bob'))).not.toContain('CVE-2026-10002')
+    expect(vi.getTimerCount()).toBe(1)
+  })
+
+  it('keeps in-memory work per owner when session persistence fails', async () => {
+    vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => { throw new Error('storage blocked') })
+    const owner = ref<string | null>('user:alice')
+    const { library } = mountLibrary(owner)
+    library.submit('CVE-2026-10002')
+    await nextTick()
+    expect(library.storageError.value).not.toBe('')
+
+    owner.value = 'user:bob'
+    expect(library.storageError.value).toBe('')
+    expect(library.jobs.value).toEqual([])
+    library.submit('CVE-2026-10003')
+    owner.value = 'user:alice'
+    expect(library.jobs.value.map(job => job.key)).toEqual(['CVE-2026-10002'])
+  })
+
+  it('never assigns legacy unowned requests to the guest or an arbitrary profile', () => {
+    const legacyKey = 'vulns-news-report-lab-v1'
+    const raw = JSON.stringify({ jobs: [{ kind: 'submission', key: 'CVE-2026-19999', status: 'completed', createdAt: new Date().toISOString() }] })
+    stored.set(legacyKey, raw)
+    const owner = ref<string | null>(null)
+    const { library } = mountLibrary(owner)
+    expect(library.jobs.value).toEqual([])
+    owner.value = 'user:alice'
+    expect(library.jobs.value).toEqual([])
+    expect(library.catalog.value.some(item => item.advisoryId === 'CVE-2026-19999')).toBe(false)
+    expect(stored.get(legacyKey)).toBe(raw)
+  })
+
+  it("does not display another owner's malformed-session error", () => {
+    stored.set(ownerStorageKey('user:alice'), '{invalid')
+    const owner = ref<string | null>('user:alice')
+    const { library } = mountLibrary(owner)
+    expect(library.storageError.value).not.toBe('')
+    owner.value = 'user:bob'
+    expect(library.storageError.value).toBe('')
+    expect(library.jobs.value).toEqual([])
+  })
 })

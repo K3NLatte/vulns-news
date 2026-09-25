@@ -4,11 +4,11 @@
 
 ## まず見るもの
 
-1. [品質レビューと再検証](frontend-quality-review.md): 観点、修正、結果、残る境界、別モデルでも再実行できる手順
+1. [レビュー後の修正状況](frontend-review-followup.md): 今回の修正、確認手順、未解決事項。初回の検証記録は [品質レビューと再検証](frontend-quality-review.md)
 2. [DESIGN.md](../DESIGN.md): 色、文字、情報の優先順位、スクロールと画面幅のルール
 3. [API連携メモ](frontend-integration.md): 現在のGo APIで確認できること、これから合意すること
 
-最新の全体を動かす場合は `codex/frontend-review-suite` を使い、[起動手順](../frontend/README.md) に従ってください。このブランチには下の差分をすべて含みます。
+最新の修正を動かす場合は `codex/frontend-review-fixes` を使い、[起動手順](../frontend/README.md) に従ってください。このブランチには下の差分をすべて含みます。
 
 ## PRを読む順番
 
@@ -17,7 +17,9 @@
 | 1 | [#3 画面と操作の基準版](https://github.com/K3NLatte/vulns-news/pull/3) | main | 画面全体、必要な機能、UIとデータ処理の分離 |
 | 2 | [#12 入力・保存・解析依頼の検証](https://github.com/K3NLatte/vulns-news/pull/12) | codex/frontend-mock | URL、破損データ、保存失敗、件数制限、取消 |
 | 3 | [#13 状態管理・画面操作の修正](https://github.com/K3NLatte/vulns-news/pull/13) | codex/frontend-hardening | セッション復元、複数タブ、応答検証、遷移とキーボード |
-| 4 | 設計・ブラウザーテスト・CI（このブランチのPR） | codex/frontend-quality | DESIGN、検証資料、ブラウザーテスト、CI、実APIとの差 |
+| 4 | [#14 設計・ブラウザーテスト・CI](https://github.com/K3NLatte/vulns-news/pull/14) | codex/frontend-quality | DESIGN、検証資料、ブラウザーテスト、CI、実APIとの差 |
+
+追加の修正ブランチ `codex/frontend-review-fixes` は #14 のブランチを比較先にします。既存PRの履歴は書き換えません。
 
 各PRは一つ前のブランチを比較先にしています。GitHubの **Files changed** には、その段階で追加した差分だけが出ます。基準版を後続PRで何度も読み直す必要はありません。#3自体は大きいため、画面と責務を把握したうえで、下記の順序で読み進めてください。
 
