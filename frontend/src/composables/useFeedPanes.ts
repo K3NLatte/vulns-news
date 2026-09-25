@@ -39,27 +39,35 @@ export function useFeedPanes(
     }
     const top = Math.max(16, workspace.value.getBoundingClientRect().top)
     height.value = Math.max(280, Math.floor(window.innerHeight - top - 16))
-    const fixedHeight = (detailHeader?.getBoundingClientRect().height ?? 0)
-      + (detailActions?.getBoundingClientRect().height ?? 0)
+    const fixedHeight =
+      (detailHeader?.getBoundingClientRect().height ?? 0) + (detailActions?.getBoundingClientRect().height ?? 0)
     // Very long titles must not consume the whole pane and make the body unreachable.
-    fullPaneScroll.value = fixedHeight + 160 * textScale > height.value
+    // Do not change scroll containers when the document moves: that loses reading position.
+    fullPaneScroll.value = fixedHeight + 160 * textScale > window.innerHeight - 32
   }
   function scheduleMeasure() {
     if (disposed || frame !== null) return
-    frame = requestAnimationFrame(() => { frame = null; measure() })
+    frame = requestAnimationFrame(() => {
+      frame = null
+      measure()
+    })
   }
-  watch([workspace, controls, enabled], async () => {
-    await nextTick()
-    if (disposed) return
-    observer.disconnect()
-    mutationObserver.disconnect()
-    if (workspace.value) mutationObserver.observe(workspace.value, { childList: true, subtree: true })
-    observeDetail()
-    if (controls.value) observer.observe(controls.value)
-    const header = document.querySelector('.app-header')
-    if (header) observer.observe(header)
-    measure()
-  }, { immediate: true })
+  watch(
+    [workspace, controls, enabled],
+    async () => {
+      await nextTick()
+      if (disposed) return
+      observer.disconnect()
+      mutationObserver.disconnect()
+      if (workspace.value) mutationObserver.observe(workspace.value, { childList: true, subtree: true })
+      observeDetail()
+      if (controls.value) observer.observe(controls.value)
+      const header = document.querySelector('.app-header')
+      if (header) observer.observe(header)
+      measure()
+    },
+    { immediate: true },
+  )
   window.addEventListener('resize', scheduleMeasure)
   window.addEventListener('scroll', scheduleMeasure, { passive: true })
   onScopeDispose(() => {
@@ -71,5 +79,9 @@ export function useFeedPanes(
     window.removeEventListener('resize', scheduleMeasure)
     window.removeEventListener('scroll', scheduleMeasure)
   })
-  return { splitView, fullPaneScroll, paneStyle: computed(() => splitView.value ? { '--detail-height': height.value + 'px' } : undefined) }
+  return {
+    splitView,
+    fullPaneScroll,
+    paneStyle: computed(() => (splitView.value ? { '--detail-height': height.value + 'px' } : undefined)),
+  }
 }

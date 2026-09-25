@@ -31,6 +31,6 @@ export function useAnalysisPreview(source: Ref<FeedItem[]>, personalized: Ref<bo
     hasAvailableResults: items.value.length > 0,
     // Result counts are already present in the filter controls below the status.
   }))
-  function retry() { stage.value = 'analyzing' }
+  function retry() { stage.value = 'completed' }
   return { stage, filter, items, analyzedCount, pendingCount, snapshot, retry }
 }

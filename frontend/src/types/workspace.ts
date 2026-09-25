@@ -34,6 +34,9 @@ export interface WorkspaceData {
 export interface WorkspaceSnapshot extends WorkspaceData {
   user: WorkspaceUser | null
   storageError: string
+  storageNotice: string
+  conflict: boolean
+  recoveryAvailable: boolean
 }
 
 export type AddRepositoryResult =

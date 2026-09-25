@@ -1,5 +1,6 @@
 import type { FeedItem, FeedOptions, FeedQuery, FeedResult } from '../types/feed'
-import { isWellFormedText } from '../utils/publicUrl'
+import { isWellFormedText, parsePublicHttpsUrl } from '../utils/publicUrl'
+import { hasUnsafeCharacters } from '../utils/inputText'
 
 /** The UI view model, not the Go API's wire format. Adapters map their response before returning it. */
 export type FeedLoader = (query: FeedQuery, options: FeedOptions) => Promise<unknown>
@@ -8,8 +9,12 @@ const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : invalid()
 
 function text(value: unknown, max = 20_000): string {
-  return typeof value === 'string' && value.length > 0 && value.length <= max && isWellFormedText(value)
-    && !/[\u0000-\u0008\u000b-\u001f\u007f]/u.test(value) ? value : invalid()
+  if (typeof value !== 'string' || value.length > max || !isWellFormedText(value)) return invalid()
+  const normalized = value.replace(/\r\n?/gu, '\n')
+  return normalized.trim().length > 0 && !hasUnsafeCharacters(normalized) ? normalized : invalid()
+}
+function nullableText(value: unknown): string | null {
+  return value === null ? null : text(value)
 }
 function choice<T extends string>(value: unknown, choices: readonly T[]): T {
   return typeof value === 'string' && choices.includes(value as T) ? value as T : invalid()
@@ -30,26 +35,36 @@ function date(value: unknown): string {
 function list<T>(value: unknown, max: number, parse: (item: unknown) => T): T[] {
   return Array.isArray(value) && value.length <= max ? value.map(parse) : invalid()
 }
-function parseItem(value: unknown): FeedItem {
+function parseItem(value: unknown, trustedVendorHosts: ReadonlySet<string>): FeedItem {
   const item = record(value)
   const analysis = record(item.analysis)
   const id = text(item.id, 200)
-  if (/\s/u.test(id)) return invalid()
+  if (!/^[a-z\d][a-z\d._:-]*$/iu.test(id)) return invalid()
   const result: FeedItem = {
     id, advisoryId: text(item.advisoryId, 2048), title: text(item.title),
-    product: text(item.product), affectedVersions: text(item.affectedVersions), fixedVersion: text(item.fixedVersion),
-    severity: choice(item.severity, ['critical', 'high', 'medium', 'low']),
+    product: nullableText(item.product), affectedVersions: nullableText(item.affectedVersions), fixedVersion: nullableText(item.fixedVersion),
+    severity: choice(item.severity, ['critical', 'high', 'medium', 'low', 'none', 'unknown']),
     cvss: item.cvss === null ? null : number(item.cvss, 0, 10),
-    publishedAt: date(item.publishedAt), updatedAt: date(item.updatedAt),
-    summary: text(item.summary), exploitation: choice(item.exploitation, ['observed', 'poc', 'not-observed']),
-    affectedComponent: text(item.affectedComponent),
+    publishedAt: item.publishedAt === null ? null : date(item.publishedAt),
+    updatedAt: item.updatedAt === null ? null : date(item.updatedAt),
+    summary: text(item.summary), exploitation: choice(item.exploitation, ['observed', 'poc', 'not-observed', 'unknown']),
+    affectedComponent: nullableText(item.affectedComponent),
     remediation: list(item.remediation, 100, value => text(value)),
-    analysis: { summary: text(analysis.summary), evidence: text(analysis.evidence), confidence: choice(analysis.confidence, ['high', 'medium', 'low']) },
+    analysis: { summary: nullableText(analysis.summary), evidence: nullableText(analysis.evidence), confidence: choice(analysis.confidence, ['high', 'medium', 'low', 'unknown']) },
     sources: list(item.sources, 100, value => {
       const source = record(value)
-      return { name: text(source.name), url: text(source.url, 2048), kind: choice(source.kind, ['vendor', 'reference']) }
+      const url = parsePublicHttpsUrl(source.url)
+      if (!url) return invalid()
+      const claimedKind = choice(source.kind, ['vendor', 'reference'])
+      return { name: text(source.name), url: url.href, kind: claimedKind === 'vendor' && trustedVendorHosts.has(url.hostname) ? 'vendor' : 'reference' }
     }),
   }
+  const expectedSeverity = result.cvss === null ? 'unknown' : result.cvss === 0 ? 'none'
+    : result.cvss < 4 ? 'low' : result.cvss < 7 ? 'medium' : result.cvss < 9 ? 'high' : 'critical'
+  if (/[\r\n\t]/u.test(result.advisoryId)) return invalid()
+  if (result.severity !== expectedSeverity) return invalid()
+  if (item.submittedAt !== undefined) result.submittedAt = date(item.submittedAt)
+  if (result.publishedAt && result.updatedAt && result.updatedAt < result.publishedAt) return invalid()
   if (item.assessment !== undefined) result.assessment = choice(item.assessment, ['unverified'] as const)
   if (item.repositoryAnalysis !== undefined) result.repositoryAnalysis = choice(item.repositoryAnalysis, ['analyzed', 'pending'] as const)
   if (item.relevance !== undefined) {
@@ -65,15 +80,36 @@ function parseItem(value: unknown): FeedItem {
     const proof = record(item.proofOfConcept)
     result.proofOfConcept = { language: text(proof.language, 100), code: text(proof.code, 100_000), conditions: list(proof.conditions, 100, value => text(value)) }
   }
+  if (result.assessment === 'unverified' && (result.cvss !== null || result.analysis.confidence !== 'unknown' || result.proofOfConcept || result.remediation.length > 0)) return invalid()
+  if ((result.repositoryAnalysis === 'pending' || result.assessment === 'unverified') && result.relevance && (result.relevance.score !== undefined || result.relevance.priority !== 'review')) return invalid()
   return result
 }
 
-/** Reject a malformed page before sorting or rendering, rather than guessing missing facts. */
-export function parseFeedResult(value: unknown): FeedResult {
+/** Reject invalid envelopes, but quarantine damaged rows so valid reports remain readable. */
+export function parseFeedResult(value: unknown, trustedVendorHosts: ReadonlySet<string> = new Set()): FeedResult {
   const data = record(value)
-  const items = list(data.items, 1000, parseItem)
+  if (!Array.isArray(data.items) || data.items.length > 1000) return invalid()
+  // Bound the complete decoded response as well as individual fields.
+  try { if (JSON.stringify(value).length > 2_000_000) return invalid() } catch { return invalid() }
   const total = count(data.total)
   const matchedTotal = count(data.matchedTotal)
-  if (new Set(items.map(item => item.id)).size !== items.length || matchedTotal !== items.length || total < matchedTotal) return invalid()
-  return { items, total, matchedTotal, generatedAt: date(data.generatedAt) }
+  if (total < matchedTotal || matchedTotal < data.items.length) return invalid()
+  const ids = new Set<string>()
+  const items: FeedItem[] = []
+  let rejectedCount = data.rejectedCount === undefined ? 0 : count(data.rejectedCount)
+  for (const raw of data.items) {
+    try {
+      const item = parseItem(raw, trustedVendorHosts)
+      if (ids.has(item.id)) { rejectedCount += 1; continue }
+      ids.add(item.id)
+      items.push(item)
+    } catch { rejectedCount += 1 }
+  }
+  const nextCursor = data.nextCursor === undefined ? undefined
+    : data.nextCursor === null ? null : text(data.nextCursor, 2048)
+  return {
+    items, total, matchedTotal, generatedAt: date(data.generatedAt),
+    ...(nextCursor === undefined ? {} : { nextCursor }),
+    ...(rejectedCount ? { rejectedCount } : {}),
+  }
 }

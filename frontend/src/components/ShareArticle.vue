@@ -6,6 +6,7 @@ import { createArticleShareUrl } from '../utils/sharing'
 const props = defineProps<{
   articleId: string
   title: string
+  shareable?: boolean
 }>()
 
 const fieldId = useId()
@@ -18,12 +19,15 @@ const status = ref('')
 const busy = ref(false)
 let requestVersion = 0
 
-watch(() => props.articleId, () => {
-  requestVersion += 1
-  manualUrl.value = ''
-  status.value = ''
-  busy.value = false
-})
+watch(
+  () => props.articleId,
+  () => {
+    requestVersion += 1
+    manualUrl.value = ''
+    status.value = ''
+    busy.value = false
+  },
+)
 
 function onPanelKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return
@@ -34,6 +38,10 @@ function onPanelKeydown(event: KeyboardEvent) {
 
 async function shareArticle() {
   if (busy.value) return
+  if (props.shareable === false) {
+    status.value = 'このレポートはこのブラウザーに保存されています。共有リンクは作成できません。'
+    return
+  }
   const version = ++requestVersion
   const url = createArticleShareUrl(window.location.href, props.articleId)
   const title = props.title
@@ -90,7 +98,8 @@ async function closeManualCopy() {
       ref="shareButton"
       class="text-button"
       type="button"
-      :aria-disabled="busy" :aria-busy="busy"
+      :aria-disabled="busy"
+      :aria-busy="busy"
       :aria-expanded="Boolean(manualUrl)"
       :aria-controls="manualUrl ? panelId : undefined"
       @click="shareArticle"
@@ -98,36 +107,41 @@ async function closeManualCopy() {
       <Share2 :size="18" aria-hidden="true" />
       共有
     </button>
-    <span :id="statusId" class="share-status" :class="{ 'sr-only': manualUrl }" role="status" aria-live="polite">
+    <span
+      :id="statusId"
+      class="share-status"
+      :class="{ 'sr-only': manualUrl || !status }"
+      role="status"
+      aria-live="polite"
+    >
       {{ status }}
     </span>
-    <Teleport to="body">
-      <div
-        v-if="manualUrl"
-        :id="panelId"
-        class="manual-copy"
-        role="region"
-        aria-label="リンクの共有"
-        @keydown="onPanelKeydown"
-      >
-        <label :for="fieldId">共有URL</label>
-        <p :id="statusId + '-manual'" class="share-status">{{ status }}</p>
-        <input
-          :id="fieldId"
-          ref="urlField"
-          type="text"
-          :value="manualUrl"
-          :aria-describedby="statusId + '-manual'"
-          readonly
-          spellcheck="false"
-          @focus="selectUrl"
-        >
-        <div class="manual-copy-actions">
-          <button class="text-button" type="button" @click="selectUrl">URLを選択</button>
-          <button class="text-button" type="button" @click="closeManualCopy">閉じる</button>
-        </div>
+    <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- Child controls bubble Escape to this panel. -->
+    <div
+      v-if="manualUrl"
+      :id="panelId"
+      class="manual-copy"
+      role="region"
+      aria-label="リンクの共有"
+      @keydown="onPanelKeydown"
+    >
+      <label :for="fieldId">共有URL</label>
+      <p :id="statusId + '-manual'" class="share-status">{{ status }}</p>
+      <input
+        :id="fieldId"
+        ref="urlField"
+        type="text"
+        :value="manualUrl"
+        :aria-describedby="statusId + '-manual'"
+        readonly
+        spellcheck="false"
+        @focus="selectUrl"
+      />
+      <div class="manual-copy-actions">
+        <button class="text-button" type="button" @click="selectUrl">URLを選択</button>
+        <button class="text-button" type="button" @click="closeManualCopy">閉じる</button>
       </div>
-    </Teleport>
+    </div>
   </div>
 </template>
 
@@ -141,26 +155,17 @@ async function closeManualCopy() {
   max-width: 100%;
 }
 
-
 .share-status {
   color: var(--muted);
-  font-size: .875rem;
+  font-size: 0.875rem;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 
-.share-status:empty {
-  display: none;
-}
-
 .manual-copy {
-  position: fixed;
-  z-index: 20;
-  right: 16px;
-  bottom: 16px;
-  width: min(420px, calc(100vw - 32px));
-  max-height: 80dvh;
-  overflow: auto;
+  flex-basis: 100%;
+  width: min(420px, 100%);
+  max-width: 100%;
   padding: 16px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -173,7 +178,7 @@ async function closeManualCopy() {
 .manual-copy label {
   display: block;
   margin-bottom: 6px;
-  font-size: .875rem;
+  font-size: 0.875rem;
 }
 
 .manual-copy input {
@@ -188,8 +193,8 @@ async function closeManualCopy() {
   gap: 16px;
 }
 
-.share-article > button[aria-disabled="true"] {
-  opacity: .6;
+.share-article > button[aria-disabled='true'] {
+  opacity: 0.6;
   cursor: wait;
 }
 </style>

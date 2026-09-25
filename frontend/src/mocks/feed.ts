@@ -92,7 +92,7 @@ Authorization: Bearer USER_B`,
     affectedComponent: 'trial-attachment / file storage',
     remediation: ['修正版1.8.4へ更新する。', '保存ファイル名はサーバー側で生成する。', '正規化後の保存先が許可したディレクトリ内にあるかを検証する。'],
     analysis: {
-      summary: '直接依存は影響範囲です。アップロード機能を無効化している場合の到達性は別途確認が必要です。',
+      summary: '影響バージョンではアップロード処理の出力先検証が不足しています。機能を無効化している構成の到達性は別途確認が必要です。',
       evidence: '1.8.1では保存先の正規化後にディレクトリの境界を確認していません。アップロード経路の確認が必要です。',
       confidence: 'high',
     },
@@ -214,7 +214,7 @@ Content-Type: application/json
     affectedComponent: 'exampledata-parser / recursive decoder',
     remediation: ['修正版1.9.2へ更新する。', '入力サイズと入れ子の深さに上限を設ける。', '処理時間を制限し、過負荷時の挙動を確認する。'],
     analysis: {
-      summary: '間接依存が一致します。外部入力を渡す経路があるかを調べる必要があります。',
+      summary: '影響バージョンのパーサーへ外部入力を渡す構成が対象です。入力を受け取る経路の有無を確認してください。',
       evidence: '1.8.3の再帰デコード処理に深さの上限がありません。外部入力がその処理へ到達するかは未確認です。',
       confidence: 'medium',
     },
@@ -294,7 +294,7 @@ Content-Type: application/json
     product: 'ExampleConfig UI',
     affectedVersions: '1.0.0以上、1.4.2未満',
     fixedVersion: '1.4.2',
-    severity: 'low',
+    severity: 'unknown',
     cvss: null,
     publishedAt: '2026-09-20T01:15:00.000Z',
     updatedAt: '2026-09-20T03:00:00.000Z',
@@ -347,5 +347,7 @@ export function repositoryFeedFor(repositoryLabel: string): FeedItem[] {
   return items.map(item => ({
     ...item,
     repositoryAnalysis: pendingRepositoryIds.has(item.id) ? 'pending' : 'analyzed',
+    ...(pendingRepositoryIds.has(item.id) && item.relevance
+      ? { relevance: { ...item.relevance, priority: 'review' as const, score: undefined } } : {}),
   }))
 }

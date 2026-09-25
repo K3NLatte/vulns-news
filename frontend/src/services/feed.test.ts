@@ -82,11 +82,11 @@ describe('getFeed', () => {
     expect(times).toEqual([...times].sort().reverse())
   })
 
-  it('sorts severity first and then publication time', async () => {
+  it('sorts severity band, CVSS score and then publication time', async () => {
     const result = await load({ sort: 'severity' })
     expect(result.items.map((item) => item.advisoryId)).toEqual([
       'DEMO-2026-001', 'DEMO-2026-004', 'DEMO-2026-009',
-      'DEMO-2026-002', 'DEMO-2026-003', 'DEMO-2026-005', 'DEMO-2026-007', 'DEMO-2026-011',
+      'DEMO-2026-003', 'DEMO-2026-005', 'DEMO-2026-002', 'DEMO-2026-007', 'DEMO-2026-011',
       'DEMO-2026-006', 'DEMO-2026-008', 'DEMO-2026-010', 'DEMO-2026-012',
     ])
   })
@@ -100,7 +100,7 @@ describe('getFeed', () => {
     expect(result.items.map((item) => item.id)).toEqual([
       'demo-003', 'demo-002', 'demo-006', 'demo-001', 'demo-008', 'demo-005',
     ])
-    expect(result.items.map((item) => item.relevance?.score)).toEqual([98, 92, 86, 74, 68, 33])
+    expect(result.items.map((item) => item.relevance?.score)).toEqual([98, 92, 86, 74, 68, undefined])
     expect(result.total).toBe(6)
     expect(result.matchedTotal).toBe(6)
   })
@@ -225,7 +225,7 @@ describe('getFeed', () => {
     expect(tooling.items[0]?.severity).toBe('medium')
     expect(tooling.items[0]?.relevance?.priority).toBe('urgent')
     expect(frontend.items.find(item => item.id === 'demo-008')?.relevance?.priority).toBe('medium')
-    expect(backend.items.find(item => item.id === 'demo-005')?.relevance?.priority).toBe('high')
+    expect(backend.items.find(item => item.id === 'demo-005')?.relevance?.priority).toBe('review')
     expect(frontend.items.find(item => item.id === 'demo-005')?.relevance?.priority).toBe('review')
   })
 
@@ -291,5 +291,17 @@ describe('getFeed', () => {
 it('rejects oversized and malformed repository values without throwing', () => {
   for (const input of [null, {}, ['https://github.com/example/project'], 'https://github.com/example/' + 'x'.repeat(2048), '\u0000https://github.com/example/project', '\ud800']) {
     expect(parseRepositoryUrl(input).ok).toBe(false)
+  }
+})
+
+it('keeps unscored CVSS out of low severity and supports an explicit unknown filter', async () => {
+  const unknown = await getFeed({ scope: 'all', search: '', sort: 'severity', severity: 'unknown' }, { delayMs: 0 })
+  expect(unknown.items.map(item => item.id)).toEqual(['demo-012'])
+  const low = await getFeed({ scope: 'all', search: '', sort: 'severity', severity: 'low' }, { delayMs: 0 })
+  expect(low.items.map(item => item.id)).not.toContain('demo-012')
+})
+it('rejects reserved GitHub paths and overlong names', () => {
+  for (const url of ['https://github.com/features/actions', 'https://github.com/' + 'a'.repeat(40) + '/repo', 'https://github.com/owner/' + 'r'.repeat(101)]) {
+    expect(parseRepositoryUrl(url).ok).toBe(false)
   }
 })
