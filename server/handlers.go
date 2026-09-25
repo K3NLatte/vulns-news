@@ -17,7 +17,7 @@ handleListCVEs は NVD から最新の CVE 一覧を取得して返す。
 const (
 	minCVEListLimit     = 1
 	defaultCVEListLimit = 10
-	maxCVEListLimit     = 100
+	maxCVEListLimit     = 200
 )
 
 func handleListCVEs(w http.ResponseWriter, r *http.Request) {
