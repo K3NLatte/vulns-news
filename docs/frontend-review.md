@@ -17,7 +17,7 @@
 | 1 | [#3 画面と操作の基準版](https://github.com/K3NLatte/vulns-news/pull/3) | main | 画面全体、必要な機能、UIとデータ処理の分離 |
 | 2 | [#12 入力・保存・解析依頼の検証](https://github.com/K3NLatte/vulns-news/pull/12) | codex/frontend-mock | URL、破損データ、保存失敗、件数制限、取消 |
 | 3 | [#13 状態管理・画面操作の修正](https://github.com/K3NLatte/vulns-news/pull/13) | codex/frontend-hardening | セッション復元、複数タブ、応答検証、遷移とキーボード |
-| 4 | [#14 設計・ブラウザーテスト・CI](https://github.com/K3NLatte/vulns-news/pull/14) | codex/frontend-quality | DESIGN、検証資料、ブラウザーテスト、CI、実APIとの差 |
+| 4 | [#14 設計・ブラウザーテスト](https://github.com/K3NLatte/vulns-news/pull/14) | codex/frontend-quality | DESIGN、検証資料、ブラウザーテスト、実APIとの差 |
 
 追加の修正ブランチ `codex/frontend-review-fixes` は #14 のブランチを比較先にします。既存PRの履歴は書き換えません。
 
