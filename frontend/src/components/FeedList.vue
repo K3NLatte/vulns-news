@@ -36,7 +36,7 @@ const priorityLabels = { urgent: '最優先', high: '高', medium: '中', low: '
         <span class="item-summary">{{ item.summary }}</span>
         <span class="item-bottomline">
           <span class="product-name">{{ item.product }}</span>
-          <span v-if="personalized && item.relevance" class="relevance-tag">
+          <span v-if="personalized && item.repositoryAnalysis === 'analyzed' && item.relevance" class="relevance-tag">
             <GitBranch :size="15" aria-hidden="true" />{{ relevanceLabels[item.relevance.kind] }}
           </span>
           <span v-else>{{ item.assessment === 'unverified' ? '悪用情報 未確認' : exploitationLabels[item.exploitation] }}</span>

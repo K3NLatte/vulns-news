@@ -1,41 +1,69 @@
 # フロントエンドとバックエンドの連携メモ
 
-完成形の画面と操作を検討するモックです。画面用の型は暫定モデルで、Go側とのAPI仕様の合意ではありません。
+採用した画面を本実装へ育てるための連携メモです。フロントエンドの画面・状態管理を維持し、未接続部分のローカル処理をAPIアダプターへ置き換えます。画面用の型とGoのHTTP応答は別の契約として扱い、未合意の項目を架空値で補いません。
 
 ## 取得と保存の境界
 
 | 窓口 | 現在の実装 | API接続時の役割 |
 | --- | --- | --- |
-| `services/feed.ts` の `getFeed()` | 固定記事の検索・絞り込み・並び替え | API応答の検証と画面用モデルへの変換 |
-| `composables/useFeed.ts` | 読み込み・キャンセル・エラー・選択状態 | 通信中の状態と古い応答の破棄を維持 |
+| `services/feed.ts` の `getFeed()` | 固定記事の検索・絞り込み・並び替えを行うローカル取得処理 | API用の取得処理へ差し替える境界 |
+| `services/feedContract.ts` の `parseFeedResult()` | 外部から渡された値を画面用の `FeedResult` として実行時検証 | Go応答の検証・変換後にも画面契約を検証。Goの応答形式とは別の型 |
+| `composables/useFeed.ts` | `FeedLoader` を受け取り、読み込み・キャンセル・エラー・選択状態を管理 | 通信手段を注入し、古い応答の破棄を維持 |
 | `services/workspace.ts` | プロフィール、複数リポジトリ、保存、コメント、対応状況のブラウザー内保存 | 認証・ユーザーデータAPIとの通信 |
 | `composables/useWorkspace.ts` | 保存境界の状態をVueへ反映 | コンポーネントと永続化処理を分離 |
 | `types/feed.ts` / `types/workspace.ts` | 画面が必要とする情報の型 | 合意後に不足・欠損・解析途中の表現を更新 |
 
-`getFeed(query, options)` は `Promise<FeedResult>` を返し、`options.signal` で取得を中止できます。`scenario` と `delayMs` はモックの確認用です。画面コンポーネントへ直接通信を散らしません。
+`getFeed(query, options)` は `Promise<FeedResult>` を返し、`options.signal` で取得を中止できます。標準ではローカル取得処理を使い、`useFeed` へ別のローダーを渡せる構造にします。`scenario` と `delayMs` はローカル確認用です。画面コンポーネントへ直接通信を散らしません。
+
+`parseFeedResult()` が検証するのは画面用のモデルです。現在の `GET /api/cves` の配列を直接渡しても契約は一致しません。CVE応答の専用検証と、合意した不足項目の扱いを含む変換が必要です。この境界の追加だけで実APIへ接続したとは扱いません。
 
 一般フィードは12件です。URLの owner/name から固定プロフィールを選び、リポジトリ向けは6件・5件・4件のいずれかになります。実在確認や依存関係の取得は行いません。再現用URLと保存の挙動は [frontend/README.md](../frontend/README.md) に記載しています。
 
 `total` は表示対象を選んだ後、検索・CVSS重要度フィルターを適用する前の件数です。`matchedTotal` は適用後の件数で、ページングはありません。保存済み一覧は取得した記事からさらに絞ります。本番では、保存済みIDを取得可能な一覧の一部と照合するだけでなく、保存記事を取得するAPIが必要です。
 
-## 2026-09-25時点で確認したバックエンド
+## 確認できたバックエンドの契約
 
-`git fetch origin --prune` 後の各ブランチを静的に確認しました。バックエンドの起動、外部NVDへの取得、LLMの呼び出し、フロントエンドからの接続は行っていません。
+2026-09-25に取得済みのリモート参照を、各コミットのソースから再確認しました。以下は静的な実装確認です。バックエンド起動、NVDへの実取得、LLM実行、ブラウザーからの接続は検証していません。
 
-| 参照先 | コミット | 確認できた内容 |
+| 参照先 | 確認したコミット | 実装状況 |
 | --- | --- | --- |
-| `origin/main` | `240f494` | `server/router.go` のルート登録。ハンドラー本体、Goモジュール、起動用main関数はこのツリーにない |
-| `origin/feature/api` | `4dd671e` | CVE一覧ハンドラーとNVDクライアント。解析系ハンドラーは501を返す |
-| `origin/feature/crowler` | `9821746` | `src/nvd/client.go` とそのテスト。APIキーレスのNVD取得ライブラリ |
-| `origin/feature/local-llm` | `240f494` | 確認時点ではmainと同じコミット。LLM処理の追加コードはない |
+| origin/main | [240f494885e5322a7fafd467cfa4c8c925c5ab96](https://github.com/K3NLatte/vulns-news/tree/240f494885e5322a7fafd467cfa4c8c925c5ab96) | server/router.goのルート登録のみ。ハンドラー、Goモジュール、起動用main関数はない |
+| origin/feature/api | [4dd671e16ba8964bc5f87b73a7a0d6aa5d499217](https://github.com/K3NLatte/vulns-news/tree/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217) | CVE一覧ハンドラー、NVDクライアント、Go 1.25のgo.mod。解析ハンドラーは501。サーバー起動処理はない |
+| origin/feature/crowler | [9821746659b28a15fee320a21ac2fda893730e53](https://github.com/K3NLatte/vulns-news/tree/9821746659b28a15fee320a21ac2fda893730e53) | NVD取得ライブラリとテスト |
+| origin/feature/local-llm | [240f494885e5322a7fafd467cfa4c8c925c5ab96](https://github.com/K3NLatte/vulns-news/tree/240f494885e5322a7fafd467cfa4c8c925c5ab96) | mainと同じツリー。LLMの追加処理はない |
 
-`main` のルーターには、`GET /api/cves`、`POST /api/analyses`、`GET /api/analyses/{analysis_id}`、内部処理用POSTが登録されています。コメント上は解析IDによる進捗・レポート取得を意図していますが、応答形式の定義はありません。[ルート定義](https://github.com/K3NLatte/vulns-news/blob/240f494885e5322a7fafd467cfa4c8c925c5ab96/server/router.go#L10-L22)
+### HTTPルートと応答
 
-`feature/api` の `GET /api/cves?limit=` は、NVDから取得した `id` と `description` の配列を返します。既定10件、上限100件で、リクエスト内でNVDの取得完了を待ちます。解析の作成・進捗取得・内部処理は501です。製品、公開日時、CVSS、出典、RepositoryProfile、LLM分析結果はこの応答に含まれません。[一覧ハンドラー](https://github.com/K3NLatte/vulns-news/blob/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217/server/handlers.go#L17-L47)・[未実装の解析ハンドラー](https://github.com/K3NLatte/vulns-news/blob/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217/server/handlers.go#L50-L66)
+下表はfeature/apiの実装。ルーターのコメントにある「収集済みの一覧」と異なり、一覧ハンドラーはリクエストごとにNVDへ問い合わせ、その完了を待ちます。[ルート登録](https://github.com/K3NLatte/vulns-news/blob/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217/server/router.go#L7-L24)・[ハンドラー](https://github.com/K3NLatte/vulns-news/blob/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217/server/handlers.go#L23-L66)
 
-NVDクライアントは1リクエスト30秒のタイムアウト、リクエスト間隔6秒、ページサイズ2000です。返却型はCVE IDと説明文だけで、英語の説明を優先します。[型と取得設定](https://github.com/K3NLatte/vulns-news/blob/9821746659b28a15fee320a21ac2fda893730e53/src/nvd/client.go#L13-L51)・[待機と説明文の選択](https://github.com/K3NLatte/vulns-news/blob/9821746659b28a15fee320a21ac2fda893730e53/src/nvd/client.go#L69-L107)
+| メソッド・パス | 入力 | 成功時の型・状態 | 現在のエラー |
+| --- | --- | --- | --- |
+| GET /api/cves | 任意のlimit。省略または空文字は10、整数1〜100 | 200、JSON配列。要素はidとdescriptionの文字列 | limit不正は400、取得エラーは502、context.DeadlineExceededに該当するエラーは504 |
+| POST /api/analyses | コメント上はCVE・Repository・ref。本文の構造も検証も未定義 | 成功処理なし。常に501 | text/plainのnot implemented |
+| GET /api/analyses/{analysis_id} | パスパラメーター。使用・検証は未実装 | 成功処理なし。常に501 | text/plainのnot implemented |
+| POST /api/internal/analyses/{analysis_id}/process | 内部処理向けのルート名のみ | 成功処理なし。常に501 | text/plainのnot implemented |
 
-今回共有されたフロー図の「200件ごとの処理」は、NVDのHTTPページサイズとは別に決められる単位です。200件バッチ、EcosystemProfiler、Normalizer、決定的マッチング、LLMScreening、DeepAnalysis、ジョブ保存と途中結果の公開は、確認したブランチにはまだ実装されていません。既存の一覧APIに `limit=200` を渡して代用することもできません。
+CVE一覧のワイヤー形式は次の型に相当します。配列を包むオブジェクト、ページング情報、総件数はありません。
+
+```ts
+interface CVEListItem {
+  id: string
+  description: string
+}
+type CVEListResponse = CVEListItem[]
+```
+
+成功時のContent-Typeはapplication/json; charset=utf-8。エラーはJSONではなくhttp.Errorで返すテキストです。フロントエンドはHTTP状態を先に判定し、エラー本文へ無条件にJSON.parseを適用しません。生のエラー文には上流の情報が含まれるため、そのまま利用者向けメッセージへ流さない方針です。[型](https://github.com/K3NLatte/vulns-news/blob/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217/src/nvd/client.go#L18-L22)・[HTTP状態と出力](https://github.com/K3NLatte/vulns-news/blob/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217/server/handlers.go#L25-L46)
+
+説明文は英語を優先し、なければ最初の言語を使います。説明文がない場合は空文字になります。日本語化、公開・更新日時、製品、CVSS、出典、RepositoryProfile、LLM分析結果はこの応答に含まれません。現在のFeedItemへ日時・CVSS・関連度を推測して補う変換は行いません。
+
+### 待ち時間と起動・認証の不足
+
+NVDクライアントは先に総件数を取得し、6秒待ってから末尾側のページを取得します。HTTPタイムアウト30秒は各リクエストに対する値で、一覧処理全体の最大30秒を保証しません。ページサイズ2000はクライアント内部の上限で、公開APIのlimit上限100とは別です。クライアントは一覧リクエストごとに作られ、キャッシュや全利用者共通のレート制限はこの実装にありません。[取得設定と待機](https://github.com/K3NLatte/vulns-news/blob/4dd671e16ba8964bc5f87b73a7a0d6aa5d499217/src/nvd/client.go#L31-L90)
+
+このツリーにはサーバーの起動処理・待受アドレス、認証・認可ミドルウェア、CookieやBearerトークンの契約、CORS設定、ジョブの永続化がありません。ローカル開発の同一オリジン経路またはプロキシと、デプロイ時の接続先を決める必要があります。internalというパス名だけでアクセスが保護されるとは扱わず、内部処理ルートをブラウザーから直接呼び出す設計にはしません。
+
+共有フロー図の「200件ごとの処理」はNVDのHTTPページサイズとは別に決める単位です。200件バッチ、EcosystemProfiler、Normalizer、決定的マッチング、LLMScreening、DeepAnalysis、ジョブ保存、途中結果の公開は確認したツリーにありません。既存一覧APIへlimit=200を渡して代用することもできません。
 
 ## 非同期表示の提案（バックエンドとは未合意）
 
@@ -101,9 +129,9 @@ NVDクライアントは1リクエスト30秒のタイムアウト、リクエ�
 ## 切り替え時の確認
 
 1. Go担当とレスポンス・エラーの例を合意します。不足項目を架空値で補って実データに見せないようにします。
-2. サービス層にAPI通信と実行時のJSON検証を実装します。TypeScriptの型注釈だけでは外部データを検証できません。
+2. サービス層へAPI通信、Go応答の実行時検証、画面モデルへの変換を追加します。変換後は既存の `parseFeedResult()` でも検証します。TypeScriptの型注釈だけでは外部データを検証できません。
 3. AbortSignal、読み込み・空結果・エラー・再試行を維持します。
-4. モックのプロフィール選択・架空スコア・ローカル認証・scenario指定を本番の取得経路から外します。
+4. 実APIを使う取得経路へ架空スコア・ローカルプロフィール・scenario指定を混入させません。未合意のフル機能とローカル確認用のアダプターは、用途を分けて維持します。
 5. 合意した応答を使って変換、期限切れ、権限不足、解析中、ページングをテストします。
 
 ## セキュリティ上の境界
@@ -114,7 +142,7 @@ URLの形式検証はブラウザーで行っていますが、サーバーで�
 
 ## 個別解析・期限付き追跡の追加案（チーム未合意）
 
-「脆弱性情報版VirusTotal」という利用者の構想を、フロントエンドで操作できる形にした案です。チームの要件合意や、バックエンドへの実装依頼を意味しません。バックエンドは変更しておらず、上記の確認時点で実装されていたのはCVE一覧の取得です。
+「脆弱性情報版VirusTotal」という利用者の構想を、開発中のフロントエンドで操作できる形にした案です。チームの要件合意や、バックエンドへの実装依頼を意味しません。バックエンドは変更しておらず、上記の確認時点で実装されていたのはCVE一覧の取得です。
 
 個別入力、既存レポートの再利用、期限付きの定期更新、期限切れ後の手動再解析、過去情報を含むリポジトリ検索を扱います。モックの操作方法と再現範囲は [frontend/README.md](../frontend/README.md#個別解析共有追跡の追加案チーム未合意) に記載しています。
 
@@ -132,4 +160,4 @@ API接続時には、次の情報を分けて合意する必要があります�
 
 追跡7日・確認間隔1日という現在の値は画面確認用の仮定です。利用者ごとに同じCVEを重複解析するか、共通レポートとリポジトリ固有の影響評価を分けるか、更新がない確認も新しい版に数えるかは要相談です。既存結果の鮮度と照合範囲を示すことで、再利用してよいか判断できるようにします。
 
-追加分の `types/reports.ts` と `services/reports.ts` は、入力の形式検証と更新期限の純粋関数です。`useReportLibrary.ts` はローカルの待機演出とセッション保存を担当しています。実APIへの移行時は、画面が作る時刻・進捗・履歴をサーバーの応答へ置き換えます。任意入力から事実・CVSS・対策を推測して補完しません。
+追加分の `types/reports.ts` と `services/reports.ts` は、入力の形式検証と更新期限の純粋関数です。`useReportLibrary.ts` はローカルのジョブ状態とセッション保存を担当しています。実APIへの移行時は、画面が作る時刻・進捗・履歴をサーバーの応答へ置き換えます。任意入力から事実・CVSS・対策を推測して補完しません。

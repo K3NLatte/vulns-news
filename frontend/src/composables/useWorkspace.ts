@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { createWorkspaceStore, type WorkspaceStorage } from '../services/workspace'
+import type { SavedReportReference } from '../types/reports'
 import type { ReviewStatus } from '../types/workspace'
 
 export function useWorkspace(storage?: WorkspaceStorage) {
@@ -9,6 +10,7 @@ export function useWorkspace(storage?: WorkspaceStorage) {
   const repositories = ref(initial.repositories)
   const activeRepositoryId = ref(initial.activeRepositoryId)
   const savedIds = ref(initial.savedIds)
+  const savedReportReferences = ref(initial.savedReportReferences)
   const comments = ref(initial.comments)
   const reviewStatuses = ref(initial.reviewStatuses)
   const storageError = ref(initial.storageError)
@@ -19,6 +21,7 @@ export function useWorkspace(storage?: WorkspaceStorage) {
     repositories.value = next.repositories
     activeRepositoryId.value = next.activeRepositoryId
     savedIds.value = next.savedIds
+    savedReportReferences.value = next.savedReportReferences
     comments.value = next.comments
     reviewStatuses.value = next.reviewStatuses
     storageError.value = next.storageError
@@ -28,13 +31,13 @@ export function useWorkspace(storage?: WorkspaceStorage) {
   }
 
   return {
-    user, repositories, activeRepositoryId, savedIds, comments, reviewStatuses, storageError,
+    user, repositories, activeRepositoryId, savedIds, savedReportReferences, comments, reviewStatuses, storageError,
     login: (displayName: string) => change(() => store.login(displayName)),
     logout: () => change(() => store.logout()),
     addRepository: (url: string) => change(() => store.addRepository(url)),
     removeRepository: (id: string) => change(() => store.removeRepository(id)),
     selectRepository: (id: string) => change(() => store.selectRepository(id)),
-    toggleSaved: (articleId: string) => change(() => store.toggleSaved(articleId)),
+    toggleSaved: (articleId: string, reference?: SavedReportReference) => change(() => store.toggleSaved(articleId, reference)),
     addComment: (articleId: string, body: string) => change(() => store.addComment(articleId, body)),
     deleteComment: (id: string) => change(() => store.deleteComment(id)),
     setReviewStatus: (repositoryId: string, articleId: string, status: ReviewStatus) => change(() => store.setReviewStatus(repositoryId, articleId, status)),

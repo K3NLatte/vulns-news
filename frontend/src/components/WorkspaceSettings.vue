@@ -42,11 +42,14 @@ function addRepository() {
   }
 }
 
-function beginRemoval(id: string, event: MouseEvent) {
+async function beginRemoval(id: string, event: MouseEvent) {
   removalTrigger = event.currentTarget instanceof HTMLButtonElement
     ? event.currentTarget
     : null
   pendingRemovalId.value = id
+  await nextTick()
+  removalTrigger?.closest('.repository-entry')
+    ?.querySelector<HTMLButtonElement>('.repository-confirm-actions button')?.focus()
 }
 
 async function cancelRemoval() {
@@ -87,6 +90,8 @@ async function removeRepository(id: string) {
             ref="urlInput"
             v-model="repositoryUrl"
             type="text"
+            maxlength="2048"
+            autocapitalize="off"
             inputmode="url"
             autocomplete="off"
             spellcheck="false"
@@ -145,6 +150,7 @@ async function removeRepository(id: string) {
             v-if="pendingRemovalId === repository.id"
             class="repository-remove-confirm"
             role="group"
+            @keydown.esc.prevent="cancelRemoval"
             :aria-label="`${repository.label}の削除確認`"
           >
             <p>「{{ repository.label }}」を削除しますか？</p>

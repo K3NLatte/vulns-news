@@ -1,10 +1,11 @@
 import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { getFeed } from '../services/feed'
+import { parseFeedResult, type FeedLoader } from '../services/feedContract'
 import type { FeedItem, FeedQuery } from '../types/feed'
 
 export type PreviewState = 'ready' | 'loading' | 'empty' | 'error'
 
-export function useFeed(query: Ref<FeedQuery>, enabled: Ref<boolean>, preview: Ref<PreviewState>) {
+export function useFeed(query: Ref<FeedQuery>, enabled: Ref<boolean>, preview: Ref<PreviewState>, loadFeed: FeedLoader = getFeed) {
   const items = ref<FeedItem[]>([])
   const total = ref(0)
   const selectedId = ref<string | null>(null)
@@ -24,8 +25,9 @@ export function useFeed(query: Ref<FeedQuery>, enabled: Ref<boolean>, preview: R
     loading.value = true
     if (preview.value === 'loading') return
     try {
-      const result = await getFeed(query.value, { signal: request.signal, scenario: preview.value })
+      const response = await loadFeed(query.value, { signal: request.signal, scenario: preview.value })
       if (request.signal.aborted) return
+      const result = parseFeedResult(response)
       items.value = result.items
       total.value = result.total
       if (!items.value.some(item => item.id === selectedId.value)) {

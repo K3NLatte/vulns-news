@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { TRACKING_DAYS } from '../services/reports'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RefreshCw, ChevronDown } from '@lucide/vue'
 import { isTrackingActive } from '../services/reports'
 import type { ReportLifecycle } from '../types/reports'
@@ -8,7 +8,17 @@ import type { InvestigationJob } from '../types/investigation'
 const props = defineProps<{ lifecycle: ReportLifecycle; now: string; job?: InvestigationJob }>()
 defineEmits<{ reanalyze: []; renew: [] }>()
 const tracking = computed(() => isTrackingActive(props.lifecycle, props.now))
-const date = (value: string | null) => value ? new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '未分析'
+const updateStatus = ref('')
+watch(() => props.lifecycle.revision, (revision, previous) => {
+  if (revision > previous) updateStatus.value = `レポートを第${revision}版に更新しました。`
+})
+const dateFormat = new Intl.DateTimeFormat('ja-JP', {
+  year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo',
+})
+function date(value: string | null) {
+  if (!value || !Number.isFinite(Date.parse(value))) return '未設定'
+  return dateFormat.format(new Date(value))
+}
 </script>
 <template>
   <section class="report-tracking" aria-label="レポートの更新と追跡">
@@ -17,7 +27,7 @@ const date = (value: string | null) => value ? new Intl.DateTimeFormat('ja-JP', 
       <span>{{ tracking ? '自動追跡中' : '追跡期間終了' }}</span>
     </div>
     <dl>
-      <div><dt>最終分析</dt><dd>{{ date(lifecycle.lastAnalyzedAt) }} <span v-if="lifecycle.revision">・第{{ lifecycle.revision }}版</span></dd></div>
+      <div><dt>最終分析</dt><dd>{{ lifecycle.lastAnalyzedAt ? date(lifecycle.lastAnalyzedAt) : '未分析' }} <span v-if="lifecycle.revision">・第{{ lifecycle.revision }}版</span></dd></div>
       <div><dt>追跡期限</dt><dd>{{ date(lifecycle.trackingUntil) }}</dd></div>
       <div v-if="tracking && lifecycle.nextCheckAt"><dt>次回確認</dt><dd>{{ date(lifecycle.nextCheckAt) }}</dd></div>
     </dl>
@@ -27,6 +37,7 @@ const date = (value: string | null) => value ? new Intl.DateTimeFormat('ja-JP', 
       <button v-if="!tracking" type="button" class="text-button" @click="$emit('renew')">{{ TRACKING_DAYS }}日間追跡を再開</button>
       <a v-if="job" href="#/analyze" class="text-button">進行状況を見る</a>
     </div>
+    <p class="sr-only" role="status">{{ updateStatus }}</p>
     <details v-if="lifecycle.history.length">
       <summary>更新履歴 <ChevronDown :size="16" aria-hidden="true" /></summary>
       <ol><li v-for="entry in [...lifecycle.history].reverse()" :key="entry.revision">第{{ entry.revision }}版 · {{ date(entry.analyzedAt) }} · {{ entry.reason === 'scheduled' ? '定期更新' : entry.reason === 'manual' ? 'リクエスト' : '初回分析' }}</li></ol>
