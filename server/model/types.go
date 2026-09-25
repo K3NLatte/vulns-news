@@ -1,4 +1,4 @@
-package main
+package model
 
 // API のレスポンスと mockdata の JSON に対応する型。
 // 日時はフロントが受け取るミリ秒付き UTC 形式を保つため、文字列で扱う。

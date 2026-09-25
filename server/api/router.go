@@ -1,28 +1,15 @@
-package main
+package api
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
+
+	"vulns-news/server/repository"
 )
 
-// newRouter はリクエストの振り分け先を登録する。
+// NewRouter は取得先を各 handler に渡し、リクエストの振り分け先を登録する。
 // 登録順は処理の実行順ではなく、調査全体の流れは Orchestrator が制御する。
-func newRouter() *http.ServeMux {
-	dataDir := os.Getenv("MOCK_DATA_DIR")
-	if dataDir == "" {
-		dataDir = filepath.Join("server", "mockdata")
-		// server ディレクトリから起動する場合にも対応する。
-		if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-			dataDir = "mockdata"
-		}
-	}
-	return newRouterWithRepository(NewMockRepository(dataDir))
-}
-
-// newRouterWithRepository は取得先を各 handler に渡してルートを登録する。
-func newRouterWithRepository(repository *MockRepository) *http.ServeMux {
-	handler := &apiHandler{repository: repository}
+func NewRouter(repo *repository.MockRepository) *http.ServeMux {
+	handler := &apiHandler{repository: repo}
 	mux := http.NewServeMux()
 
 	// 初期画面に表示する、モックの CVE 一覧を取得する。

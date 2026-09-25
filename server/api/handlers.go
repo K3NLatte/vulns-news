@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+
+	"vulns-news/server/repository"
 )
 
 const (
@@ -17,7 +19,7 @@ const (
 
 // apiHandler は各ルートから利用するデータ取得先を保持する。
 type apiHandler struct {
-	repository *MockRepository
+	repository *repository.MockRepository
 }
 
 // handleListCVEs はモックの CVE 一覧を指定件数まで返す。
@@ -98,8 +100,8 @@ func (h *apiHandler) handleGetRepositoryCVE(w http.ResponseWriter, r *http.Reque
 
 // writeRepositoryError は取得時のエラーを HTTP の状態コードに変換する。
 func writeRepositoryError(w http.ResponseWriter, err error) {
-	if errors.Is(err, ErrNotFound) {
-		http.Error(w, ErrNotFound.Error(), http.StatusNotFound)
+	if errors.Is(err, repository.ErrNotFound) {
+		http.Error(w, repository.ErrNotFound.Error(), http.StatusNotFound)
 		return
 	}
 	log.Printf("データの取得に失敗しました: %v", err)
@@ -123,18 +125,15 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 // handleCreateAnalysis は新しい調査を作成し、Orchestrator に実行を依頼する。
 func handleCreateAnalysis(w http.ResponseWriter, r *http.Request) {
-
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
 // handleGetAnalysis は指定された調査の進捗・レポートを返す。
 func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
-
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
 // handleProcessAnalysis は収集・解析済みの材料を Processor に渡す。
 func handleProcessAnalysis(w http.ResponseWriter, r *http.Request) {
-
 	http.Error(w, "not implemented", http.StatusNotImplemented)
 }

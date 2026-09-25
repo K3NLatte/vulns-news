@@ -6,11 +6,11 @@ Vue + TypeScriptで、画面と操作を検討しながら、バックエンド�
 
 ## 起動
 
-WSL Ubuntu-24.04でリポジトリのルートへ移動し、API用のターミナルで実行します。現在のローカル起動用 `server/main.go` を使います。
+WSL Ubuntu-24.04でリポジトリのルートへ移動し、API用のターミナルで実行します。
 
 ```bash
 nix develop .#
-go run ./server
+go run ./server/cmd/api
 ```
 
 フロント用の別ターミナルで実行します。

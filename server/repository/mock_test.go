@@ -1,4 +1,4 @@
-package main
+package repository
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 )
 
 func TestMockRepositoryFeedDetails(t *testing.T) {
-	repository := NewMockRepository("mockdata")
+	repository := NewMockRepository("../mockdata")
 	feed, err := repository.ListCVEs()
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestMockRepositoryFeedDetails(t *testing.T) {
 }
 
 func TestMockRepositoryNotFound(t *testing.T) {
-	repository := NewMockRepository("mockdata")
+	repository := NewMockRepository("../mockdata")
 	cases := []struct {
 		name string
 		call func() error

@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"encoding/json"
@@ -9,44 +9,47 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"vulns-news/server/model"
+	"vulns-news/server/repository"
 )
 
 func TestMockAPIFlow(t *testing.T) {
-	router := newRouterWithRepository(NewMockRepository("mockdata"))
-	all := requestJSON[FeedResult](t, router, "GET", "/api/cves?limit=200", "", http.StatusOK)
+	router := NewRouter(repository.NewMockRepository("../mockdata"))
+	all := requestJSON[model.FeedResult](t, router, "GET", "/api/cves?limit=200", "", http.StatusOK)
 	if len(all.Items) != 12 || all.Total != 12 || all.MatchedTotal != 12 {
 		t.Fatalf("全体の一覧件数が不正です: %+v", all)
 	}
 	// 詳細サンプル以外の記事も URL の ID で選べることを確認する。
 	item := all.Items[len(all.Items)-1]
-	detail := requestJSON[FeedItem](t, router, "GET", "/api/cves/"+item.ID, "", http.StatusOK)
+	detail := requestJSON[model.FeedItem](t, router, "GET", "/api/cves/"+item.ID, "", http.StatusOK)
 	if !reflect.DeepEqual(detail, item) {
 		t.Fatal("CVE 詳細が一覧と一致しません")
 	}
 
-	registration := requestJSON[CreateRepositoryResponse](t, router, "POST", "/api/repositories",
+	registration := requestJSON[model.CreateRepositoryResponse](t, router, "POST", "/api/repositories",
 		`{"url":"https://github.com/example/mock-service"}`, http.StatusAccepted)
 	if registration.RepositoryID != "repo-001" || registration.JobID != "job-001" {
 		t.Fatalf("登録結果が不正です: %+v", registration)
 	}
-	job := requestJSON[JobResponse](t, router, "GET", "/api/jobs/"+registration.JobID, "", http.StatusOK)
+	job := requestJSON[model.JobResponse](t, router, "GET", "/api/jobs/"+registration.JobID, "", http.StatusOK)
 	if job.RepositoryID != registration.RepositoryID || job.Stage != "completed" ||
 		job.HasAvailableResults == nil || !*job.HasAvailableResults {
 		t.Fatalf("ジョブの応答が不正です: %+v", job)
 	}
 	feedURL := "/api/repositories/" + registration.RepositoryID + "/feed"
-	related := requestJSON[FeedResult](t, router, "GET", feedURL, "", http.StatusOK)
+	related := requestJSON[model.FeedResult](t, router, "GET", feedURL, "", http.StatusOK)
 	if len(related.Items) != 6 || related.Total != 6 || related.MatchedTotal != 6 {
 		t.Fatalf("リポジトリ別の一覧件数が不正です: %+v", related)
 	}
-	relatedDetail := requestJSON[FeedItem](t, router, "GET", feedURL+"/"+related.Items[0].ID, "", http.StatusOK)
+	relatedDetail := requestJSON[model.FeedItem](t, router, "GET", feedURL+"/"+related.Items[0].ID, "", http.StatusOK)
 	if !reflect.DeepEqual(relatedDetail, related.Items[0]) {
 		t.Fatal("リポジトリ別の詳細が一覧と一致しません")
 	}
 }
 
 func TestMockAPIListLimits(t *testing.T) {
-	router := newRouterWithRepository(NewMockRepository("mockdata"))
+	router := NewRouter(repository.NewMockRepository("../mockdata"))
 	for _, tc := range []struct {
 		query string
 		count int
@@ -58,7 +61,7 @@ func TestMockAPIListLimits(t *testing.T) {
 		{"?limit=200", 12},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
-			feed := requestJSON[FeedResult](t, router, "GET", "/api/cves"+tc.query, "", http.StatusOK)
+			feed := requestJSON[model.FeedResult](t, router, "GET", "/api/cves"+tc.query, "", http.StatusOK)
 			if len(feed.Items) != tc.count || feed.MatchedTotal != tc.count || feed.Total != 12 {
 				t.Fatalf("件数が不正です: items=%d matchedTotal=%d total=%d", len(feed.Items), feed.MatchedTotal, feed.Total)
 			}
@@ -75,7 +78,7 @@ func TestMockAPIListLimits(t *testing.T) {
 }
 
 func TestMockAPIErrorStatuses(t *testing.T) {
-	router := newRouterWithRepository(NewMockRepository("mockdata"))
+	router := NewRouter(repository.NewMockRepository("../mockdata"))
 	for _, path := range []string{
 		"/api/cves/missing",
 		"/api/jobs/missing",
@@ -91,7 +94,7 @@ func TestMockAPIErrorStatuses(t *testing.T) {
 	request(t, router, "POST", "/api/jobs/job-001", "", http.StatusMethodNotAllowed)
 
 	directory := t.TempDir()
-	brokenRouter := newRouterWithRepository(NewMockRepository(directory))
+	brokenRouter := NewRouter(repository.NewMockRepository(directory))
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/api/cves"},
 		{"GET", "/api/cves/demo-001"},
@@ -111,33 +114,6 @@ func TestMockAPIErrorStatuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	request(t, brokenRouter, "GET", "/api/cves", "", http.StatusInternalServerError)
-}
-
-func TestMockAPIDefaultDataDirectory(t *testing.T) {
-	serverDirectory, err := filepath.Abs(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MOCK_DATA_DIR", "")
-	for _, directory := range []string{serverDirectory, filepath.Dir(serverDirectory)} {
-		t.Run(directory, func(t *testing.T) {
-			t.Chdir(directory)
-			feed := requestJSON[FeedResult](t, newRouter(), "GET", "/api/cves?limit=1", "", http.StatusOK)
-			if len(feed.Items) != 1 {
-				t.Fatal("起動ディレクトリに対応するモックを読み込めません")
-			}
-		})
-	}
-}
-
-func TestMockAPIConfiguredDataDirectory(t *testing.T) {
-	directory, err := filepath.Abs("mockdata")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MOCK_DATA_DIR", directory)
-	t.Chdir(t.TempDir())
-	requestJSON[FeedResult](t, newRouter(), "GET", "/api/cves", "", http.StatusOK)
 }
 
 func request(t *testing.T, handler http.Handler, method, path, body string, status int) *httptest.ResponseRecorder {
