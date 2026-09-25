@@ -1,0 +1,8 @@
+{
+  "job_id": "job-001",
+  "repository_id": "repo-001",
+  "stage": "analyzing",
+  "processed": 2,
+  "total": 6,
+  "hasAvailableResults": false
+}

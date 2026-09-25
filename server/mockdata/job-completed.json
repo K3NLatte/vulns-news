@@ -1,0 +1,10 @@
+{
+  "job_id": "job-001",
+  "repository_id": "repo-001",
+  "stage": "completed",
+  "processed": 6,
+  "total": 6,
+  "confirmedCount": 5,
+  "pendingCount": 1,
+  "hasAvailableResults": true
+}
