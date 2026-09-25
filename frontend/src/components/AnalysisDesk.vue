@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { TRACKING_DAYS } from '../services/reports'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { ArrowLeft } from '@lucide/vue'
 import { articlePath } from '../composables/useNavigation'
 import type { FeedItem } from '../types/feed'
@@ -12,6 +12,7 @@ const props = defineProps<{
   reports: { item: FeedItem; lifecycle: ReportLifecycle }[]
   submissionError: string
   now: string
+  trackingFilter: 'active' | 'expired'
 }>()
 
 const emit = defineEmits<{
@@ -20,10 +21,26 @@ const emit = defineEmits<{
   renew: [id: string]
   retry: [id: string]
   cancel: [id: string]
+  'update:tracking-filter': [value: 'active' | 'expired']
+  'open-report': [linkId: string]
 }>()
 
 const input = ref('')
-const trackingFilter = ref<'active' | 'expired'>('active')
+const inputField = ref<HTMLInputElement | null>(null)
+
+async function submit() {
+  emit('submit', input.value)
+  await nextTick()
+  if (props.submissionError) inputField.value?.focus()
+}
+
+async function cancelJob(job: InvestigationJob, event: MouseEvent) {
+  const entry = (event.currentTarget as HTMLElement).closest('.request-entry')
+  emit('cancel', job.id)
+  await nextTick()
+  // The cancel action disappears after success; keep keyboard focus in this request.
+  entry?.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true })
+}
 const dateFormat = new Intl.DateTimeFormat('ja-JP', {
   year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo',
@@ -56,7 +73,7 @@ function displayDate(value: string | null | undefined) {
 
 const activeReports = computed(() => props.reports.filter(report => isTracking(report.lifecycle)))
 const expiredReports = computed(() => props.reports.filter(report => !isTracking(report.lifecycle)))
-const visibleReports = computed(() => trackingFilter.value === 'active' ? activeReports.value : expiredReports.value)
+const visibleReports = computed(() => props.trackingFilter === 'active' ? activeReports.value : expiredReports.value)
 const reportTitles = computed(() => new Map(props.reports.map(({ item }) => [item.id, item.title])))
 const activeReportIds = computed(() => new Set(props.jobs.filter(isActive).flatMap(job => job.reportIds)))
 </script>
@@ -68,11 +85,12 @@ const activeReportIds = computed(() => new Set(props.jobs.filter(isActive).flatM
       <a class="text-button" href="#/feed"><ArrowLeft :size="17" aria-hidden="true" />フィードへ</a>
     </header>
 
-    <form class="submission-form" @submit.prevent="emit('submit', input.trim())">
+    <form class="submission-form" @submit.prevent="submit">
       <label for="analysis-input">CVE・GHSA・アドバイザリURL</label>
       <div class="submission-row">
         <input
           id="analysis-input"
+          ref="inputField"
           v-model="input"
           type="text"
           autocomplete="off"
@@ -96,20 +114,20 @@ const activeReportIds = computed(() => new Set(props.jobs.filter(isActive).flatM
         <li v-for="job in jobs" :key="job.id" class="request-entry">
           <div class="request-main">
             <div class="request-meta"><span>{{ kindLabels[job.kind] }}</span><time :datetime="job.createdAt">{{ displayDate(job.createdAt) }}</time></div>
-            <h3>{{ job.label }}</h3>
-            <p class="request-state" :class="'state-' + job.status" role="status" aria-atomic="true">{{ statusLabels[job.status] }}</p>
+            <h3 tabindex="-1">{{ job.label }}</h3>
+            <p class="request-state" :class="'state-' + job.status" role="status" aria-atomic="true"><span class="sr-only">{{ job.label }}： </span>{{ statusLabels[job.status] }}</p>
             <p v-if="job.error && job.status === 'failed'" class="input-error">{{ job.error }}</p>
             <p v-if="job.kind === 'repository' && (job.reusedCount || job.newCount || job.status === 'completed')" class="request-result-counts">
               <span>既存レポート {{ job.reusedCount }}件</span><span>新規作成 {{ job.newCount }}件</span>
             </p>
             <p v-else-if="job.status === 'completed' && job.reusedCount" class="field-help">既存のレポートが見つかりました。</p>
             <ul v-if="job.reportIds.some(id => reportTitles.has(id))" class="request-reports" aria-label="参照できるレポート">
-              <li v-for="id in job.reportIds.filter(id => reportTitles.has(id))" :key="id"><a :href="articlePath(id)">{{ reportTitles.get(id) || 'レポートを開く' }}</a></li>
+              <li v-for="id in job.reportIds.filter(id => reportTitles.has(id))" :key="id"><a :id="'request-report-' + job.id + '-' + id" :href="articlePath(id)" @click="emit('open-report', 'request-report-' + job.id + '-' + id)">{{ reportTitles.get(id) || 'レポートを開く' }}</a></li>
             </ul>
           </div>
           <div v-if="isActive(job) || job.status === 'failed'" class="request-actions">
-            <button v-if="isActive(job)" class="secondary-button" type="button" @click="emit('cancel', job.id)">中止</button>
-            <button v-else class="secondary-button" type="button" @click="emit('retry', job.id)">再試行</button>
+            <button v-if="isActive(job)" class="secondary-button" type="button" :aria-label="job.label + 'の解析を中止'" @click="cancelJob(job, $event)">中止</button>
+            <button v-else class="secondary-button" type="button" :aria-label="job.label + 'の解析を再試行'" @click="emit('retry', job.id)">再試行</button>
           </div>
         </li>
       </ul>
@@ -118,15 +136,15 @@ const activeReportIds = computed(() => new Set(props.jobs.filter(isActive).flatM
     <section class="desk-section tracking-section" aria-labelledby="report-tracking-heading">
       <h2 id="report-tracking-heading">レポートの追跡</h2>
       <div class="tracking-filters" role="group" aria-label="追跡状態">
-        <button type="button" :aria-pressed="trackingFilter === 'active'" @click="trackingFilter = 'active'">追跡中 <span>{{ activeReports.length }}</span></button>
-        <button type="button" :aria-pressed="trackingFilter === 'expired'" @click="trackingFilter = 'expired'">期限終了 <span>{{ expiredReports.length }}</span></button>
+        <button type="button" :aria-pressed="trackingFilter === 'active'" @click="emit('update:tracking-filter', 'active')">追跡中 <span>{{ activeReports.length }}</span></button>
+        <button type="button" :aria-pressed="trackingFilter === 'expired'" @click="emit('update:tracking-filter', 'expired')">期限終了 <span>{{ expiredReports.length }}</span></button>
       </div>
       <p v-if="!visibleReports.length" class="tracking-empty">{{ trackingFilter === 'active' ? '追跡中のレポートはありません。' : '追跡期限が終了したレポートはありません。' }}</p>
       <ul v-else class="report-list">
         <li v-for="{ item, lifecycle } in visibleReports" :key="item.id" class="report-entry">
           <div class="report-main">
             <p class="report-identifier"><span>{{ item.advisoryId }}</span><span v-if="lifecycle.revision > 0">第{{ lifecycle.revision }}版</span></p>
-            <h3><a :href="articlePath(item.id)">{{ item.title }}</a></h3>
+            <h3><a :id="'tracked-report-' + item.id" :href="articlePath(item.id)" @click="emit('open-report', 'tracked-report-' + item.id)">{{ item.title }}</a></h3>
             <dl class="report-dates">
               <div><dt>最終分析</dt><dd><time v-if="lifecycle.lastAnalyzedAt" :datetime="lifecycle.lastAnalyzedAt">{{ displayDate(lifecycle.lastAnalyzedAt) }}</time><span v-else>未分析</span></dd></div>
               <div><dt>追跡期限</dt><dd><time v-if="lifecycle.trackingUntil" :datetime="lifecycle.trackingUntil">{{ displayDate(lifecycle.trackingUntil) }}</time><span v-else>なし</span></dd></div>
@@ -144,8 +162,8 @@ const activeReportIds = computed(() => new Set(props.jobs.filter(isActive).flatM
             </details>
           </div>
           <div class="report-actions">
-            <button class="secondary-button" type="button" :disabled="activeReportIds.has(item.id)" @click="emit('reanalyze', item.id)">{{ activeReportIds.has(item.id) ? '解析中' : '再分析' }}</button>
-            <button v-if="!isTracking(lifecycle)" class="text-button" type="button" @click="emit('renew', item.id)">{{ TRACKING_DAYS }}日間追跡を再開</button>
+            <button class="secondary-button" type="button" :disabled="activeReportIds.has(item.id)" :aria-label="item.advisoryId + 'を再分析'" @click="emit('reanalyze', item.id)">{{ activeReportIds.has(item.id) ? '解析中' : '再分析' }}</button>
+            <button v-if="!isTracking(lifecycle)" class="text-button" type="button" :aria-label="item.advisoryId + 'の追跡を' + TRACKING_DAYS + '日間再開'" @click="emit('renew', item.id)">{{ TRACKING_DAYS }}日間追跡を再開</button>
           </div>
         </li>
       </ul>

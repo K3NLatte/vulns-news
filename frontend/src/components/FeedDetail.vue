@@ -15,6 +15,7 @@ import {
   MessageSquare,
 } from '@lucide/vue'
 import type { FeedItem } from '../types/feed'
+import { canReviewRepositoryArticle } from '../services/repositoryAssessment'
 import type { FeedComment, ReviewStatus } from '../types/workspace'
 import {
   confidenceLabels,
@@ -36,6 +37,7 @@ const props = withDefaults(defineProps<{
   reportJob?: InvestigationJob
   item: FeedItem
   personalized: boolean
+  repositoryLabel?: string
   expanded?: boolean
   fullFeatures?: boolean
   canReview?: boolean
@@ -45,6 +47,7 @@ const props = withDefaults(defineProps<{
   currentUserId?: string
   reviewStatus?: ReviewStatus
 }>(), {
+  repositoryLabel: '',
   expanded: false,
   fullFeatures: true,
   canReview: true,
@@ -82,8 +85,11 @@ const reviewStatuses: { value: ReviewStatus; label: string }[] = [
   { value: 'not-affected', label: '影響なし' },
 ]
 
-const pending = computed(() => props.personalized && props.item.repositoryAnalysis === 'pending')
+const pending = computed(() => props.personalized && !canReviewRepositoryArticle(props.item))
+const reviewEnabled = computed(() => props.fullFeatures && props.personalized && props.canReview
+  && canReviewRepositoryArticle(props.item))
 const copied = ref(false)
+const copying = ref(false)
 const copyError = ref('')
 const repositoryPriority = computed(() => pending.value ? 'review' : props.item.relevance?.priority ?? 'review')
 const relevanceScore = computed(() => {
@@ -104,6 +110,9 @@ watch(() => props.item.id, () => {
 })
 
 async function copyId() {
+  if (copying.value) return
+  copying.value = true
+  copied.value = false
   const advisoryId = props.item.advisoryId
   copyError.value = ''
   try {
@@ -113,10 +122,13 @@ async function copyId() {
     if (props.item.advisoryId === advisoryId) {
       copyError.value = 'コピーできませんでした。IDを選択してコピーしてください。'
     }
+  } finally {
+    copying.value = false
   }
 }
 
 function updateReviewStatus(event: Event) {
+  if (!reviewEnabled.value) return
   const value = (event.target as HTMLSelectElement).value
   const option = reviewStatuses.find(status => status.value === value)
   if (option) emit('update:review-status', option.value)
@@ -186,6 +198,8 @@ function updateReviewStatus(event: Event) {
           class="icon-button"
           type="button"
           aria-label="記事IDをコピー"
+          :disabled="copying"
+          :aria-busy="copying"
           @click="copyId"
         >
           <Check v-if="copied" :size="18" aria-hidden="true" />
@@ -197,13 +211,14 @@ function updateReviewStatus(event: Event) {
       </div>
       <p v-if="copyError" class="input-error" role="alert">{{ copyError }}</p>
 
-      <h2 id="detail-title" tabindex="-1">{{ item.title }}</h2>
+      <component :is="expanded ? 'h1' : 'h2'" id="detail-title" tabindex="-1">{{ item.title }}</component>
+      <p v-if="personalized && repositoryLabel" class="detail-label">対象リポジトリ：{{ repositoryLabel }}</p>
       <div class="detail-meta">
         <span class="detail-cvss">
           <span class="cvss-label">CVSS</span>
           <span v-if="item.assessment === 'unverified'" class="severity-badge">未評価</span>
           <SeverityBadge v-else :severity="item.severity" :score="item.cvss" />
-          <span v-if="item.cvss === null">未評価</span>
+          <span v-if="item.cvss === null && item.assessment !== 'unverified'">未評価</span>
         </span>
         <span>{{ item.assessment === 'unverified' ? '悪用情報 未確認' : exploitationLabels[item.exploitation] }}</span>
       </div>
@@ -233,7 +248,7 @@ function updateReviewStatus(event: Event) {
       </dl>
 
       <section
-        v-if="personalized && item.relevance"
+        v-if="personalized && item.relevance && !pending"
         class="relevance-section"
         aria-labelledby="relevance-heading"
       >
@@ -264,7 +279,7 @@ function updateReviewStatus(event: Event) {
       </section>
 
       <section
-        v-if="fullFeatures && personalized && canReview"
+        v-if="reviewEnabled"
         class="detail-section triage-section"
         aria-labelledby="review-heading"
       >

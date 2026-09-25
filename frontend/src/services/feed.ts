@@ -1,3 +1,4 @@
+import { MAX_URL_LENGTH, isWellFormedText } from '../utils/publicUrl'
 import { mockFeed, mockGeneratedAt, repositoryFeedFor } from '../mocks/feed'
 import type {
   FeedItem,
@@ -29,9 +30,10 @@ const severityOrder: Record<Severity, number> = {
 }
 
 /** Validates input only; this does not establish that a repository is public or exists. */
-export function parseRepositoryUrl(input: string): RepositoryUrlResult {
-  const value = input.trim()
+export function parseRepositoryUrl(input: unknown): RepositoryUrlResult {
   const invalid = (message: string): RepositoryUrlResult => ({ ok: false, message })
+  if (typeof input !== 'string' || input.length > MAX_URL_LENGTH || !isWellFormedText(input) || /[\u0000-\u001f\u007f]/u.test(input)) return invalid('2,048文字以内の正しいリポジトリURLを入力してください。')
+  const value = input.trim()
 
   if (!value) return invalid('公開GitHubリポジトリのURLを入力してください。')
   if (/[\s\\%?#]/u.test(value)) {
@@ -66,7 +68,7 @@ export function parseRepositoryUrl(input: string): RepositoryUrlResult {
   }
 
   const label = `${owner}/${repository}`
-  return { ok: true, url: `https://github.com/${label}`, label }
+  return { ok: true, url: `https://github.com/${label.toLowerCase()}`, label }
 }
 
 function abortError(): DOMException {
@@ -92,7 +94,9 @@ function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-function relevanceScore(score: number | undefined): number {
+function relevanceScore(item: FeedItem): number {
+  if (item.repositoryAnalysis === 'pending' || item.assessment === 'unverified') return Number.NEGATIVE_INFINITY
+  const score = item.relevance?.score
   return score !== undefined && Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY
 }
 
@@ -150,8 +154,8 @@ export function filterFeedItems(source: FeedItem[], query: FeedQuery): FeedItem[
   })
   const items = [...filtered].sort((a, b) => {
     if (query.scope === 'repository' && query.sort === 'relevance') {
-      const aScore = relevanceScore(a.relevance?.score)
-      const bScore = relevanceScore(b.relevance?.score)
+      const aScore = relevanceScore(a)
+      const bScore = relevanceScore(b)
       if (aScore !== bScore) return bScore - aScore
     }
     if (query.sort === 'severity') {

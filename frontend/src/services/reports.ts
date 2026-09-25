@@ -1,9 +1,12 @@
+import { MAX_URL_LENGTH, isWellFormedText, parsePublicHttpsUrl } from '../utils/publicUrl'
+import { isStoredDate } from './reportSession'
 import type { FeedItem } from '../types/feed'
 import type {
   ReportInputKind,
   ReportInputResult,
   ReportLifecycle,
   ReportOrigin,
+  SavedReportReference,
 } from '../types/reports'
 
 export type { ReportInputKind, ReportInputResult, ReportLifecycle, ReportOrigin } from '../types/reports'
@@ -14,33 +17,17 @@ const CVE_PATTERN = /^CVE-\d{4}-\d{4,}$/iu
 const GHSA_PATTERN = /^GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}$/iu
 
 /** Input syntax only. DNS resolution, redirects and fetch restrictions belong to the backend. */
-export function normalizeReportInput(raw: string): ReportInputResult {
+export function normalizeReportInput(raw: unknown): ReportInputResult {
   const invalid = (message: string): ReportInputResult => ({ ok: false, message })
-  if (raw.length > 2_048) return invalid('入力は2,048文字以内にしてください。')
+  if (typeof raw !== 'string' || raw.length > MAX_URL_LENGTH || !isWellFormedText(raw)) return invalid('入力は2,048文字以内にしてください。')
   if (/[\u0000-\u001f\u007f\\]/u.test(raw)) return invalid('改行や制御文字を含まないID・URLを入力してください。')
   const value = raw.trim()
   if (!value) return invalid('CVE・GHSAのID、またはアドバイザリのURLを入力してください。')
   if (CVE_PATTERN.test(value)) return { ok: true, kind: 'cve', key: value.toUpperCase() }
   if (GHSA_PATTERN.test(value)) return { ok: true, kind: 'ghsa', key: value.toUpperCase() }
 
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    return invalid('CVE-年-番号、GHSAのID、またはhttpsのURLを入力してください。')
-  }
-  if (url.protocol !== 'https:' || url.username || url.password || url.port || /^https:\/\/[^/]*@/iu.test(value)) {
-    return invalid('認証情報や独自のポート番号を含まないhttpsのURLを入力してください。')
-  }
-  const hostname = url.hostname.replace(/\.$/u, '')
-  if (!hostname.includes('.') || /^[\d.]+$/u.test(hostname) || hostname.includes(':')
-    || /(?:^|\.)(?:localhost|local|internal|lan|home|test|invalid)$/iu.test(hostname)) {
-    return invalid('公開アドバイザリのドメイン名を含むURLを入力してください。')
-  }
-  if (/\s/u.test(value) || /%(?:0[0-9a-f]|1[0-9a-f]|7f)/iu.test(value)) {
-    return invalid('空白や制御文字を含まないURLを入力してください。')
-  }
-  url.hostname = hostname
+  const url = parsePublicHttpsUrl(value)
+  if (!url) return invalid('認証情報や独自ポートを含まない、公開アドバイザリのHTTPS URLを入力してください。')
   url.hash = ''
   return { ok: true, kind: 'url', key: url.href }
 }
@@ -73,7 +60,7 @@ export function findExistingReport(inputKey: string, items: FeedItem[]): FeedIte
 }
 
 /** Compact local identifier only; not a secret, authentication token or cryptographic hash. */
-function localUrlId(value: string): string {
+function localReportId(value: string): string {
   let first = 0xdeadbeef
   let second = 0x41c6ce57
   for (let index = 0; index < value.length; index += 1) {
@@ -94,7 +81,8 @@ export function createSubmittedReport(inputKey: string, kind: ReportInputKind, n
   const sourceUrl = kind === 'cve' ? `https://nvd.nist.gov/vuln/detail/${key}`
     : kind === 'ghsa' ? `https://github.com/advisories/${key}` : key
   return {
-    id: kind === 'url' ? `submitted-url-${localUrlId(key)}` : `submitted-${key}`,
+    // Workspace IDs are bounded to 200 characters, including the submitted- prefix.
+    id: kind === 'url' || key.length > 190 ? `submitted-${kind}-${localReportId(key)}` : `submitted-${key}`,
     advisoryId: kind === 'url' ? advisoryIdFromUrl(key) ?? 'URLから追加' : key,
     title: kind === 'url' ? `${new URL(key).hostname} のアドバイザリ` : `${key} の調査`,
     product: '未確認',
@@ -229,3 +217,21 @@ export const historicalReports: FeedItem[] = [
     sources: [{ name: 'SampleHTTP アドバイザリ', url: 'https://example.org/advisories/demo-2023-014', kind: 'vendor' }],
   },
 ]
+
+/** Rehydrate only a validated submission reference, never persisted report prose. */
+export function restoreSavedReport(id: string, value: unknown): FeedItem | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const reference = value as Record<string, unknown>
+  if (!isStoredDate(reference.createdAt)) return undefined
+  const parsed = normalizeReportInput(reference.input)
+  if (!parsed.ok || parsed.key !== reference.input) return undefined
+  const item = createSubmittedReport(parsed.key, parsed.kind, reference.createdAt)
+  return item.id === id ? item : undefined
+}
+
+export function getSavedReportItems(references: Record<string, SavedReportReference>): FeedItem[] {
+  return Object.entries(references).flatMap(([id, reference]) => {
+    const item = restoreSavedReport(id, reference)
+    return item ? [item] : []
+  })
+}

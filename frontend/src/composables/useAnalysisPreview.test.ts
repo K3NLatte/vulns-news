@@ -56,3 +56,19 @@ it('keeps an explicitly unresolved historical result pending after its report is
   expect(preview.pendingCount.value).toBe(1)
   expect(preview.analyzedCount.value).toBe(0)
 })
+
+it('does not infer a completed repository assessment from a known article or job completion', () => {
+  const knownArticle = structuredClone(mockFeed[0]!)
+  const unverifiedArticle: FeedItem = {
+    ...knownArticle,
+    id: 'submitted-unverified',
+    assessment: 'unverified',
+    repositoryAnalysis: 'analyzed',
+  }
+  const preview = useAnalysisPreview(ref([knownArticle, unverifiedArticle]), ref(true), 'completed')
+
+  expect(preview.items.value.map(item => item.repositoryAnalysis)).toEqual(['pending', 'pending'])
+  expect(preview.pendingCount.value).toBe(2)
+  expect(preview.analyzedCount.value).toBe(0)
+  expect(knownArticle.repositoryAnalysis).toBeUndefined()
+})

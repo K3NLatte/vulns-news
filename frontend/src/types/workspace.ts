@@ -1,3 +1,5 @@
+import type { SavedReportReference } from './reports'
+
 export interface WorkspaceUser {
   id: string
   displayName: string
@@ -24,6 +26,7 @@ export interface WorkspaceData {
   repositories: WorkspaceRepository[]
   activeRepositoryId: string | null
   savedIds: string[]
+  savedReportReferences: Record<string, SavedReportReference>
   comments: FeedComment[]
   reviewStatuses: Record<string, ReviewStatus>
 }
