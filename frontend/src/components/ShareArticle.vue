@@ -25,17 +25,12 @@ watch(() => props.articleId, () => {
   busy.value = false
 })
 
-watch(manualUrl, (url, _previousUrl, onCleanup) => {
-  if (!url) return
-  const onKeydown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      void closeManualCopy()
-    }
-  }
-  document.addEventListener('keydown', onKeydown)
-  onCleanup(() => document.removeEventListener('keydown', onKeydown))
-})
+function onPanelKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return
+  event.preventDefault()
+  event.stopPropagation()
+  void closeManualCopy()
+}
 
 async function shareArticle() {
   if (busy.value) return
@@ -95,7 +90,7 @@ async function closeManualCopy() {
       ref="shareButton"
       class="text-button"
       type="button"
-      :disabled="busy"
+      :aria-disabled="busy" :aria-busy="busy"
       :aria-expanded="Boolean(manualUrl)"
       :aria-controls="manualUrl ? panelId : undefined"
       @click="shareArticle"
@@ -113,6 +108,7 @@ async function closeManualCopy() {
         class="manual-copy"
         role="region"
         aria-label="リンクの共有"
+        @keydown="onPanelKeydown"
       >
         <label :for="fieldId">共有URL</label>
         <p :id="statusId + '-manual'" class="share-status">{{ status }}</p>
@@ -192,7 +188,7 @@ async function closeManualCopy() {
   gap: 16px;
 }
 
-.share-article > button:disabled {
+.share-article > button[aria-disabled="true"] {
   opacity: .6;
   cursor: wait;
 }

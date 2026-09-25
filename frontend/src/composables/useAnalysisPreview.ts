@@ -5,7 +5,6 @@ import type { AnalysisSnapshot, AnalysisStage } from '../types/analysis'
 export type AnalysisFilter = 'all' | 'analyzed' | 'pending'
 const stages: AnalysisStage[] = ['queued', 'profiling', 'matching', 'screening', 'analyzing', 'completed', 'failed']
 // Fixed review fixtures. These are neither dependency rules nor an API contract.
-const pendingIds = new Set(['demo-005', 'demo-009', 'demo-012'])
 const partialAnalyzedIds = new Set(['demo-002', 'demo-003', 'demo-008'])
 
 export function useAnalysisPreview(source: Ref<FeedItem[]>, personalized: Ref<boolean>, requestedStage: string | null) {
@@ -15,7 +14,8 @@ export function useAnalysisPreview(source: Ref<FeedItem[]>, personalized: Ref<bo
     if (!personalized.value) return source.value
     const classified = source.value.map(item => ({
       ...item,
-      repositoryAnalysis: item.repositoryAnalysis === 'pending' || pendingIds.has(item.id) ? 'pending' as const : 'analyzed' as const,
+      repositoryAnalysis: item.repositoryAnalysis === 'analyzed' && item.assessment !== 'unverified'
+        ? 'analyzed' as const : 'pending' as const,
     }))
     if (['queued', 'profiling', 'matching'].includes(stage.value)) return []
     if (stage.value === 'screening') return classified.filter(item => item.repositoryAnalysis === 'pending')

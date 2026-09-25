@@ -5,6 +5,7 @@ import AnalysisDesk from './components/AnalysisDesk.vue'
 import { useReportLibrary } from './composables/useReportLibrary'
 import { filterFeedItems } from './services/feed'
 import { getSavedReportItems } from './services/reports'
+import { resolveRepositoryArticle, canReviewRepositoryArticle } from './services/repositoryAssessment'
 import AppHeader from './components/AppHeader.vue'
 import AnalysisStatus from './components/AnalysisStatus.vue'
 import { useFeedPanes } from './composables/useFeedPanes'
@@ -16,7 +17,8 @@ import FeedList from './components/FeedList.vue'
 import FeedState from './components/FeedState.vue'
 import FeedToolbar from './components/FeedToolbar.vue'
 import RepositoryForm from './components/RepositoryForm.vue'
-import { useFeed, type PreviewState } from './composables/useFeed'
+import { useFeed } from './composables/useFeed'
+import { readPreviewOptions } from './utils/previewOptions'
 import { articlePath, useNavigation } from './composables/useNavigation'
 import { useWorkspace } from './composables/useWorkspace'
 import type { FeedItem, FeedQuery, FeedSort, Severity } from './types/feed'
@@ -24,16 +26,14 @@ import type { ReviewStatus } from './types/workspace'
 import type { SavedReportReference } from './types/reports'
 
 // Both review variants use the same components and data boundary.
-const params = new URLSearchParams(window.location.search)
-const fullFeatures = params.get('view') !== 'mvp'
-const scenario = params.get('scenario')
-const preview = ref<PreviewState>(scenario === 'loading' || scenario === 'empty' || scenario === 'error' ? scenario : 'ready')
+const { fullFeatures, preview: requestedPreview, analysisStage } = readPreviewOptions(window.location.search)
+const preview = ref(requestedPreview)
 const { route, navigate } = useNavigation()
 if (!fullFeatures && (route.value.page === 'saved' || route.value.page === 'settings' || route.value.page === 'analyze')) navigate('#/feed')
 const workspace = useWorkspace()
-const library = useReportLibrary()
-const { jobs: reportJobs, reports: trackedReports, lifecycles, now: reportNow, submissionError: reportError, storageError: reportStorageError, publicationQueue } = library
 const { user, repositories, activeRepositoryId, savedIds, savedReportReferences, comments, storageError } = workspace
+const library = useReportLibrary(() => user.value?.id ?? null)
+const { jobs: reportJobs, reports: trackedReports, lifecycles, now: reportNow, submissionError: reportError, storageError: reportStorageError, publicationQueue } = library
 const accountOpen = ref(false)
 const actionError = ref('')
 const accountError = ref('')
@@ -95,11 +95,28 @@ const combinedItems = computed(() => {
   const unique = [...new Map([...savedCatalog, ...items.value, ...extras].map(item => [item.id, item])).values()]
   return filterFeedItems(unique, query.value)
 })
-const analysis = useAnalysisPreview(combinedItems, personalized, params.get('analysis'))
+const analysis = useAnalysisPreview(combinedItems, personalized, analysisStage)
 const repositoryScan = computed(() => library.scanFor(repositoryUrl.value))
-watch(repositoryUrl, url => {
-  if (url && fullFeatures && !params.has('analysis') && !library.scanFor(url)) library.scanRepository(url)
-}, { immediate: true })
+const repositoryScanError = ref('')
+watch([repositoryUrl, () => user.value?.id], () => { repositoryScanError.value = '' })
+const scanActive = computed(() => repositoryScan.value && ['queued', 'collecting', 'analyzing'].includes(repositoryScan.value.status))
+const repositoryScanLabel = computed(() => {
+  if (repositoryScanError.value) return '過去情報の検索を開始できませんでした'
+  switch (repositoryScan.value?.status) {
+    case 'completed': return '過去の公開情報も検索済み'
+    case 'cancelled': return '過去情報の検索を中止しました'
+    case 'failed': return '過去情報の検索に失敗しました'
+    case 'queued': return '過去情報の検索を待機中'
+    case 'collecting': case 'analyzing': return '過去の公開情報も検索中'
+    default: return '過去情報は未検索'
+  }
+})
+function requestRepositoryScan() {
+  repositoryScanError.value = ''
+  const job = library.scanRepository(repositoryUrl.value)
+  if (!job) repositoryScanError.value = reportError.value || '検索を開始できませんでした。もう一度お試しください。'
+}
+
 const { filter: analysisFilter, analyzedCount, pendingCount, snapshot: analysisSnapshot } = analysis
 const availableItems = computed(() => personalized.value ? analysis.items.value : combinedItems.value)
 const visibleItems = computed(() => availableItems.value.filter(item => {
@@ -117,9 +134,11 @@ const selected = computed(() => {
   const opened = openedSavedArticle.value
   const retained = opened?.owner === (user.value?.id ?? 'guest') && opened.item.id === current.articleId
     ? opened.item : null
-  return library.catalog.value.find(item => item.id === current.articleId)
+  const fallback = library.catalog.value.find(item => item.id === current.articleId)
     ?? savedReportItems.value.find(item => item.id === current.articleId)
     ?? retained
+    ?? null
+  return personalized.value ? resolveRepositoryArticle(fallback, availableItems.value) : fallback
 })
 const articleComments = computed(() => comments.value.filter(comment => comment.articleId === selected.value?.id))
 const reviewRepository = computed(() => repositories.value.find(repo => repo.url === repositoryUrl.value))
@@ -197,7 +216,7 @@ function skipToContent() {
   document.getElementById('main-content')?.focus()
 }
 watch(accountOpen, value => { if (value) accountError.value = '' })
-watch([() => selected.value?.id, user], () => { commentError.value = '' })
+watch([() => selected.value?.id, () => user.value?.id], () => { commentError.value = '' })
 
 function addRepository(url: string) {
   const result = workspace.addRepository(url)
@@ -266,7 +285,7 @@ function deleteComment(id: string) { runAction(() => workspace.deleteComment(id)
 function changeReviewStatus(status: ReviewStatus) {
   const repository = reviewRepository.value
   const item = selected.value
-  if (item && repository) runAction(() => workspace.setReviewStatus(repository.id, item.id, status))
+  if (item && repository && canReviewRepositoryArticle(item)) runAction(() => workspace.setReviewStatus(repository.id, item.id, status))
 }
 function login(displayName: string) {
   accountError.value = ''
@@ -325,17 +344,18 @@ function logout() {
           <RepositoryForm v-else :repository="adHocRepository" @submit="setRepository" />
           <p v-if="repositoryError" class="input-error" role="alert">{{ repositoryError }}</p>
         </template>
-        <div v-if="fullFeatures && personalized && !params.has('analysis')" class="repository-history-status" role="status">
+        <div v-if="fullFeatures && personalized && !Boolean(analysisStage)" class="repository-history-status" role="status">
           <div>
-            <strong>{{ repositoryScan?.status === 'completed' ? '過去の公開情報も検索済み' : repositoryScan?.status === 'cancelled' ? '過去情報の検索を中止しました' : '過去の公開情報も検索中' }}</strong>
+            <strong>{{ repositoryScanLabel }}</strong>
             <span v-if="repositoryScan?.status === 'completed'">既存レポート {{ repositoryScan.reusedCount }}件を再利用 · {{ repositoryScan.newCount }}件を新規分析</span>
             <span v-else>既存レポートから表示しています。</span>
           </div>
           <a href="#/analyze" class="text-button">解析一覧</a>
-          <button v-if="repositoryScan?.status === 'completed' || repositoryScan?.status === 'cancelled'" type="button" class="text-button" @click="library.scanRepository(repositoryUrl)">再検索</button>
+          <button type="button" class="text-button" :aria-disabled="Boolean(scanActive)" @click="!scanActive && requestRepositoryScan()">{{ repositoryScan ? '再検索' : '過去情報も検索' }}</button>
         </div>
+        <p v-if="repositoryScanError" class="input-error" role="alert">{{ repositoryScanError }}</p>
         <button v-if="fullFeatures && route.page === 'feed' && publicationQueue.length" type="button" class="new-reports-button" @click="library.publish">新しいレポート {{ publicationQueue.length }}件を表示</button>
-        <AnalysisStatus v-if="personalized && !loading && !error && (params.has('analysis') || repositoryScan?.status === 'completed' || !fullFeatures)" :snapshot="analysisSnapshot" @retry="analysis.retry" />
+        <AnalysisStatus v-if="personalized && !loading && !error && (Boolean(analysisStage) || repositoryScan?.status === 'completed' || !fullFeatures)" :snapshot="analysisSnapshot" @retry="analysis.retry" />
         <FeedToolbar v-model:search="search" v-model:severity="severity" v-model:sort="sort" :allow-relevance-sort="personalized" />
         <div class="results-heading">
           <div v-if="personalized && !loading && !error" class="analysis-filters" role="group" aria-label="解析結果の絞り込み">
@@ -383,7 +403,7 @@ function logout() {
           :lifecycle="Object.hasOwn(lifecycles, selected.id) ? lifecycles[selected.id] : undefined" :now="reportNow" :report-job="library.activeJobFor(selected.id)"
           @reanalyze="library.reanalyze(selected.id)" @renew="library.renew(selected.id)"
           :saved="savedIds.includes(selected.id)" :comments="articleComments" :current-user-id="user?.id ?? 'guest'"
-          :review-status="reviewStatus" :can-review="Boolean(reviewRepository)" :comment-error="commentError" @back="navigate(previousList)" @expand="expandArticle()" @comments="expandArticle('comments-heading')"
+          :review-status="reviewStatus" :can-review="Boolean(reviewRepository) && canReviewRepositoryArticle(selected)" :repository-label="repositoryUrl.replace('https://github.com/', '')" :comment-error="commentError" @back="navigate(previousList)" @expand="expandArticle()" @comments="expandArticle('comments-heading')"
           @toggle-save="saveSelected" @add-comment="addComment" @delete-comment="deleteComment"
           @update:review-status="changeReviewStatus"
         />
