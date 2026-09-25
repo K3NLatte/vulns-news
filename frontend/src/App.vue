@@ -3,7 +3,9 @@ import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { ArrowLeft, ChevronDown, GitBranch, Plus, X } from '@lucide/vue'
 import AnalysisDesk from './components/AnalysisDesk.vue'
 import { useReportLibrary } from './composables/useReportLibrary'
-import { filterFeedItems } from './services/feed'
+import { filterFeedItems, getFeed } from './services/feed'
+import { createFeedApi, type DetailTarget } from './services/feedApi'
+import { useFeedDetail } from './composables/useFeedDetail'
 import { getSavedReportItems } from './services/reports'
 import { resolveRepositoryArticle, canReviewRepositoryArticle } from './services/repositoryAssessment'
 import AppHeader from './components/AppHeader.vue'
@@ -24,9 +26,12 @@ import { useWorkspace } from './composables/useWorkspace'
 import type { FeedItem, FeedQuery, FeedSort, Severity } from './types/feed'
 import type { ReviewStatus } from './types/workspace'
 import type { SavedReportReference } from './types/reports'
+import type { AnalysisSnapshot } from './types/analysis'
 
 // Both review variants use the same components and data boundary.
 const { fullFeatures, preview: requestedPreview, analysisStage } = readPreviewOptions(window.location.search)
+// Explicit development previews retain the standalone design fixtures.
+const localPreview = import.meta.env.DEV && (import.meta.env.VITE_FEED_SOURCE === 'local' || requestedPreview !== 'ready' || analysisStage !== null)
 const preview = ref(requestedPreview)
 const { route, navigate } = useNavigation()
 if (!fullFeatures && (route.value.page === 'saved' || route.value.page === 'settings' || route.value.page === 'analyze')) navigate('#/feed')
@@ -84,7 +89,12 @@ const query = computed<FeedQuery>(() => ({
   severity: articlePage.value ? 'all' : severity.value,
   sort: sort.value,
 }))
-const { items, selectedId, loading, error, reload } = useFeed(query, enabled, preview)
+const apiJob = ref<AnalysisSnapshot | null>(null)
+watch(repositoryUrl, () => { apiJob.value = null }, { flush: 'sync' })
+const api = createFeedApi((url, job) => {
+  if (url === repositoryUrl.value) apiJob.value = job
+})
+const { items, selectedId, loading, error, reload } = useFeed(query, enabled, preview, localPreview ? getFeed : api.getFeed)
 const savedReportItems = computed(() => getSavedReportItems(savedReportReferences.value))
 // Retain only the article explicitly unsaved while reading it. Clear on navigation/profile change.
 const openedSavedArticle = ref<{ owner: string; item: FeedItem; reference: SavedReportReference } | null>(null)
@@ -95,7 +105,7 @@ const combinedItems = computed(() => {
   const unique = [...new Map([...savedCatalog, ...items.value, ...extras].map(item => [item.id, item])).values()]
   return filterFeedItems(unique, query.value)
 })
-const analysis = useAnalysisPreview(combinedItems, personalized, analysisStage)
+const analysis = useAnalysisPreview(combinedItems, personalized, analysisStage, localPreview ? undefined : apiJob)
 const repositoryScan = computed(() => library.scanFor(repositoryUrl.value))
 const repositoryScanError = ref('')
 watch([repositoryUrl, () => user.value?.id], () => { repositoryScanError.value = '' })
@@ -124,7 +134,7 @@ const visibleItems = computed(() => availableItems.value.filter(item => {
   return !personalized.value || analysisFilter.value === 'all' || item.repositoryAnalysis === analysisFilter.value
 }))
 const analysisWaiting = computed(() => personalized.value && ['queued', 'profiling', 'matching'].includes(analysis.stage.value))
-const selected = computed(() => {
+const selectedSummary = computed(() => {
   const current = route.value
   if (current.page !== 'article') {
     return visibleItems.value.find(item => item.id === selectedId.value) ?? visibleItems.value[0] ?? null
@@ -139,6 +149,26 @@ const selected = computed(() => {
     ?? retained
     ?? null
   return personalized.value ? resolveRepositoryArticle(fallback, availableItems.value) : fallback
+})
+const detailTarget = computed<DetailTarget | null>(() => {
+  if (localPreview || !enabled.value || loading.value || error.value) return null
+  const summary = selectedSummary.value
+  // Browser-only reports do not have a detail endpoint in this API yet.
+  if (summary && !items.value.some(item => item.id === summary.id)) return null
+  const id = route.value.page === 'article' ? route.value.articleId : summary?.id
+  return id ? { id, repositoryUrl: repositoryUrl.value || undefined } : null
+})
+const { item: detailItem, loading: detailLoading, error: detailError, reload: reloadDetail } = useFeedDetail(detailTarget, api.getDetail)
+const selected = computed(() => detailTarget.value ? detailItem.value : selectedSummary.value)
+let focusDetailOnLoad = false
+watch(detailLoading, async busy => {
+  if (busy || detailError.value || (!articlePage.value && !focusDetailOnLoad)) return
+  await nextTick()
+  document.querySelector('.detail-content')?.scrollTo({ top: 0 })
+  document.getElementById(articleFocusTarget)?.focus({ preventScroll: true })
+  if (articleFocusTarget === 'comments-heading') document.getElementById(articleFocusTarget)?.scrollIntoView({ block: 'start' })
+  articleFocusTarget = 'detail-title'
+  focusDetailOnLoad = false
 })
 const articleComments = computed(() => comments.value.filter(comment => comment.articleId === selected.value?.id))
 const reviewRepository = computed(() => repositories.value.find(repo => repo.url === repositoryUrl.value))
@@ -201,7 +231,7 @@ watch(loading, async value => {
     if (list) list.scrollTop = previousListScroll
     restoreScroll = null
     document.getElementById('article-' + selectedId.value)?.focus({ preventScroll: true })
-  } else if (articlePage.value) {
+  } else if (articlePage.value && !detailLoading.value) {
     const target = document.getElementById(articleFocusTarget)
     target?.focus({ preventScroll: true })
     if (articleFocusTarget === 'comments-heading') target?.scrollIntoView({ block: 'start' })
@@ -238,7 +268,16 @@ function retry() {
   if (preview.value !== 'ready') preview.value = 'ready'
   else void reload()
 }
+function retryAnalysis() {
+  if (localPreview) analysis.retry()
+  else void reload()
+}
+function retryArticle() {
+  if (error.value) retry()
+  else void reloadDetail()
+}
 async function selectItem(id: string) {
+  focusDetailOnLoad = !localPreview
   selectedId.value = id
   if (!splitView.value) {
     navigate(articlePath(id, repositoryUrl.value || undefined))
@@ -355,7 +394,7 @@ function logout() {
         </div>
         <p v-if="repositoryScanError" class="input-error" role="alert">{{ repositoryScanError }}</p>
         <button v-if="fullFeatures && route.page === 'feed' && publicationQueue.length" type="button" class="new-reports-button" @click="library.publish">新しいレポート {{ publicationQueue.length }}件を表示</button>
-        <AnalysisStatus v-if="personalized && !loading && !error && (Boolean(analysisStage) || repositoryScan?.status === 'completed' || !fullFeatures)" :snapshot="analysisSnapshot" @retry="analysis.retry" />
+        <AnalysisStatus v-if="personalized && ((!localPreview && apiJob) || (!loading && !error && (Boolean(analysisStage) || repositoryScan?.status === 'completed' || !fullFeatures)))" :snapshot="analysisSnapshot" @retry="retryAnalysis" />
         <FeedToolbar v-model:search="search" v-model:severity="severity" v-model:sort="sort" :allow-relevance-sort="personalized" />
         <div class="results-heading">
           <div v-if="personalized && !loading && !error" class="analysis-filters" role="group" aria-label="解析結果の絞り込み">
@@ -372,7 +411,7 @@ function logout() {
           <button v-if="hasFilters" class="text-button" type="button" @click="resetFilters"><X :size="16" aria-hidden="true" />条件を解除</button>
         </div>
       </div>
-      <div ref="workspaceElement" class="feed-workspace" :style="paneStyle" :class="{ 'article-page': articlePage, 'is-split': splitView, 'is-detail-scroll': fullPaneScroll, 'is-single': !selected || loading || error || !enabled }">
+      <div ref="workspaceElement" class="feed-workspace" :style="paneStyle" :class="{ 'article-page': articlePage, 'is-split': splitView, 'is-detail-scroll': fullPaneScroll, 'is-single': (!selectedSummary && !detailTarget) || loading || error || !enabled }">
         <section v-if="!articlePage" class="list-panel" :tabindex="splitView ? 0 : undefined" aria-label="記事一覧" :aria-busy="loading">
           <FeedState v-if="!enabled" state="repository" @repositories="focusRepositoryInput" />
           <FeedState v-else-if="loading" state="loading" />
@@ -384,21 +423,25 @@ function logout() {
           </div>
           <FeedState v-else-if="!visibleItems.length" :state="savedView && !hasFilters ? 'saved' : 'empty'" @reset="resetFilters(); analysisFilter = 'all'" />
           <FeedList
-            v-else :items="visibleItems" :selected-id="selected?.id ?? null" :personalized="personalized"
+            v-else :items="visibleItems" :selected-id="selectedSummary?.id ?? null" :personalized="personalized"
             :repository-url="repositoryUrl" :full-features="fullFeatures" :saved-ids="savedIds"
             @select="selectItem" @toggle-save="toggleSaved"
           />
         </section>
         <template v-if="articlePage">
-          <FeedState v-if="loading" state="loading" />
-          <FeedState v-else-if="error" state="error" :message="error" @retry="retry" />
+          <FeedState v-if="loading || detailLoading" state="loading" />
+          <FeedState v-else-if="error || detailError" state="error" :message="error || detailError" @retry="retryArticle" />
           <div v-else-if="!selected" class="empty-state">
             <h1>記事が見つかりません</h1>
             <a class="text-button" href="#/feed">フィードに戻る</a>
           </div>
         </template>
+        <template v-if="!articlePage && !loading && !error && enabled">
+          <FeedState v-if="detailLoading" state="loading" />
+          <FeedState v-else-if="detailError" state="error" :message="detailError" @retry="reloadDetail" />
+        </template>
         <FeedDetail
-          v-if="selected && !loading && !error && enabled" :key="selected.id + ':' + repositoryUrl"
+          v-if="selected && !loading && !error && !detailLoading && !detailError && enabled" :key="selected.id + ':' + repositoryUrl"
           :item="selected" :personalized="personalized" :expanded="articlePage" :full-features="fullFeatures"
           :lifecycle="Object.hasOwn(lifecycles, selected.id) ? lifecycles[selected.id] : undefined" :now="reportNow" :report-job="library.activeJobFor(selected.id)"
           @reanalyze="library.reanalyze(selected.id)" @renew="library.renew(selected.id)"
