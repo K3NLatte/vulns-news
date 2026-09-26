@@ -1,6 +1,7 @@
 package lockprofile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,21 @@ import (
 
 	"vulns-news/src/traversal"
 )
+
+func TestRecognizedFileAfterManyEntries(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 260; i++ {
+		fixture(t, root, fmt.Sprintf("ignored-%03d", i), "")
+	}
+	fixture(t, root, "zz/composer.lock", `{"packages":[{"name":"example/lib","version":"1.2.3"}]}`)
+	got, err := Profile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components) != 1 || got.Components[0].SourcePath != "zz/composer.lock" {
+		t.Fatalf("missing recognized file after ignored entries: %+v", got.Components)
+	}
+}
 
 func TestProfileWithTraversal(t *testing.T) {
 	root := t.TempDir()

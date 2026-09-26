@@ -172,7 +172,7 @@ func TestProfileTraversalSymlinks(t *testing.T) {
 }
 
 func TestProfileTraversalSourceLimits(t *testing.T) {
-	for _, scenario := range []string{"depth", "file bytes", "file count", "entry count"} {
+	for _, scenario := range []string{"depth", "file bytes", "file count"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			switch scenario {
@@ -185,10 +185,7 @@ func TestProfileTraversalSourceLimits(t *testing.T) {
 				for i := 0; i <= sourceinspect.MaxFiles; i++ {
 					writeProfileFile(t, root, fmt.Sprintf("f%04d.go", i), "package sample\n")
 				}
-			case "entry count":
-				for i := 0; i <= sourceinspect.MaxEntries; i++ {
-					writeProfileFile(t, root, fmt.Sprintf("f%05d.txt", i), "")
-				}
+
 			}
 			_, _, err := compareTraversalProfile(t, &AcquiredRepository{Path: root})
 			if !errors.Is(err, sourceinspect.ErrLimit) {

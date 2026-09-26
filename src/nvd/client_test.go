@@ -62,6 +62,25 @@ func TestFetchPageSendsWindowPaginationAndAPIKey(t *testing.T) {
 	}
 }
 
+func TestQueryOptionalWindows(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	values, err := queryValues(Query{})
+	if err != nil || len(values) != 2 || values.Get("resultsPerPage") != "200" || values.Get("startIndex") != "0" {
+		t.Fatalf("windowless query=%v error=%v", values, err)
+	}
+	for _, query := range []Query{
+		{PublishedStart: start}, {PublishedEnd: start},
+		{ModifiedStart: start}, {ModifiedEnd: start},
+		{PublishedStart: start, PublishedEnd: start.Add(-time.Hour)},
+		{ModifiedStart: start, ModifiedEnd: start.Add(-time.Hour)},
+		{StartIndex: -1}, {ResultsPerPage: -1}, {ResultsPerPage: 201},
+	} {
+		if _, err := queryValues(query); err == nil {
+			t.Errorf("accepted invalid query: %+v", query)
+		}
+	}
+}
+
 func TestFetchPageDefaultsAndCapsPageSize(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if got := request.URL.Query().Get("resultsPerPage"); got != "200" {
@@ -75,7 +94,7 @@ func TestFetchPageDefaultsAndCapsPageSize(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := client.FetchPage(context.Background(), Query{PublishedStart: start, PublishedEnd: start.Add(time.Hour)}); err != nil {
+	if _, err := client.FetchPage(context.Background(), Query{}); err != nil {
 		t.Fatalf("FetchPage default size: %v", err)
 	}
 	if _, err := client.FetchPage(context.Background(), Query{PublishedStart: start, PublishedEnd: start.Add(time.Hour), ResultsPerPage: 201}); err == nil {

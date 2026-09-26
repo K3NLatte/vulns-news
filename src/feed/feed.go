@@ -5,6 +5,7 @@ package feed
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"vulns-news/src/assessment"
@@ -20,27 +21,31 @@ const (
 	StatusAnalyzed AnalysisStatus = "analyzed"
 )
 
+var cveIDPattern = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]{4,}$`)
+
 // Item is API-ready feed data. Identity, severity, affected components, and
 // versions come from backend-owned facts; generated prose remains separated.
 type Item struct {
-	Applicability    assessment.Report         `json:"applicability"`
-	RepositoryID     string                    `json:"repository_id"`
-	RepositoryCommit string                    `json:"repository_commit"`
-	CVEID            string                    `json:"cve_id"`
-	CVERevision      time.Time                 `json:"cve_revision"`
-	PublishedAt      time.Time                 `json:"published_at"`
-	Severity         string                    `json:"severity,omitempty"`
-	CVSS             *float64                  `json:"cvss,omitempty"`
-	Matches          []domain.TargetMatch      `json:"matches"`
-	Relevance        processor.Relevance       `json:"relevance"`
-	Status           AnalysisStatus            `json:"status"`
-	ScreeningReason  string                    `json:"screening_reason"`
-	Summary          *processor.SupportedClaim `json:"summary,omitempty"`
-	RepositoryImpact *processor.SupportedClaim `json:"repository_impact,omitempty"`
-	MissingInfo      []string                  `json:"missing_information"`
-	Actions          []string                  `json:"recommended_actions"`
-	Evidence         []processor.Evidence      `json:"evidence"`
-	Generation       []processor.Generation    `json:"generation"`
+	Applicability         assessment.Report         `json:"applicability"`
+	RepositoryID          string                    `json:"repository_id"`
+	RepositoryCommit      string                    `json:"repository_commit"`
+	VulnerabilityID       string                    `json:"vulnerability_id"`
+	VulnerabilityRevision time.Time                 `json:"vulnerability_revision"`
+	CVEID                 string                    `json:"cve_id,omitempty"`
+	CVERevision           time.Time                 `json:"cve_revision"`
+	PublishedAt           time.Time                 `json:"published_at"`
+	Severity              string                    `json:"severity,omitempty"`
+	CVSS                  *float64                  `json:"cvss,omitempty"`
+	Matches               []domain.TargetMatch      `json:"matches"`
+	Relevance             processor.Relevance       `json:"relevance"`
+	Status                AnalysisStatus            `json:"status"`
+	ScreeningReason       string                    `json:"screening_reason"`
+	Summary               *processor.SupportedClaim `json:"summary,omitempty"`
+	RepositoryImpact      *processor.SupportedClaim `json:"repository_impact,omitempty"`
+	MissingInfo           []string                  `json:"missing_information"`
+	Actions               []string                  `json:"recommended_actions"`
+	Evidence              []processor.Evidence      `json:"evidence"`
+	Generation            []processor.Generation    `json:"generation"`
 }
 
 // Build creates one feed item. Unrelated results are intentionally excluded,
@@ -74,20 +79,24 @@ func Build(
 		cvss = &value
 	}
 	item := Item{
-		Applicability:    assessment.Assess(input.Repository, input.Vulnerability, input.Candidate),
-		RepositoryID:     input.Candidate.RepositoryID,
-		RepositoryCommit: input.Candidate.RepositoryCommit,
-		CVEID:            input.Vulnerability.ID,
-		CVERevision:      input.Vulnerability.ModifiedAt,
-		PublishedAt:      input.Vulnerability.PublishedAt,
-		Severity:         input.Vulnerability.Severity,
-		CVSS:             cvss,
-		Matches:          append([]domain.TargetMatch(nil), input.Candidate.Matches...),
-		Relevance:        screening.Result.Relevance,
-		Status:           StatusScreened,
-		ScreeningReason:  screening.Result.Reason,
-		Evidence:         append([]processor.Evidence(nil), input.Evidence...),
-		Generation:       []processor.Generation{screening.Generation},
+		Applicability:         assessment.Assess(input.Repository, input.Vulnerability, input.Candidate),
+		RepositoryID:          input.Candidate.RepositoryID,
+		RepositoryCommit:      input.Candidate.RepositoryCommit,
+		VulnerabilityID:       input.Vulnerability.ID,
+		VulnerabilityRevision: input.Vulnerability.ModifiedAt,
+		PublishedAt:           input.Vulnerability.PublishedAt,
+		Severity:              input.Vulnerability.Severity,
+		CVSS:                  cvss,
+		Matches:               append([]domain.TargetMatch(nil), input.Candidate.Matches...),
+		Relevance:             screening.Result.Relevance,
+		Status:                StatusScreened,
+		ScreeningReason:       screening.Result.Reason,
+		Evidence:              append([]processor.Evidence(nil), input.Evidence...),
+		Generation:            []processor.Generation{screening.Generation},
+	}
+	if cveIDPattern.MatchString(input.Vulnerability.ID) {
+		item.CVEID = input.Vulnerability.ID
+		item.CVERevision = input.Vulnerability.ModifiedAt
 	}
 	if analysis == nil {
 		return item, nil

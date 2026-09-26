@@ -137,11 +137,17 @@ type AffectedTarget struct {
 	CPEs        []string            `json:"cpes"`
 	Aliases     []string            `json:"aliases"`
 	Constraints []VersionConstraint `json:"constraints"`
+	// DefaultStatus retains source policy, not a computed applicability verdict.
+	// Exceptions in Constraints must not be interpreted as a union of affected ranges.
+	DefaultStatus string `json:"default_status,omitempty"`
 }
 
 // VersionConstraint retains source version boundaries and the comparison scheme
 // required to interpret them. Different ecosystems must use their own evaluator.
 type VersionConstraint struct {
+	// Status preserves source affected/unaffected/unknown exceptions. Consumers
+	// without status-aware evaluation must leave these unknown-scheme facts unknown.
+	Status                string `json:"status,omitempty"`
 	Scheme                string `json:"scheme"`
 	Expression            string `json:"expression,omitempty"`
 	VersionStartIncluding string `json:"version_start_including,omitempty"`
@@ -152,8 +158,9 @@ type VersionConstraint struct {
 
 // Reference is a normalized source URL attached to a vulnerability.
 type Reference struct {
-	URL  string   `json:"url"`
-	Tags []string `json:"tags"`
+	Source string   `json:"source,omitempty"`
+	URL    string   `json:"url"`
+	Tags   []string `json:"tags"`
 }
 
 // MatchReason is a deterministic identity-match reason.

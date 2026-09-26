@@ -27,19 +27,19 @@ type Fragment struct {
 
 type Limits struct {
 	MaxFileSize   int64
-	MaxFiles      int
+	MaxFiles      int // 0 disables the traversal-entry limit.
 	MaxDepth      int
 	MaxComponents int
 }
 
-func DefaultLimits() Limits { return Limits{10 << 20, 100000, 64, 100000} }
+func DefaultLimits() Limits { return Limits{10 << 20, 0, 64, 100000} }
 
 type Profiler struct{ limits Limits }
 
 func New() *Profiler { return &Profiler{DefaultLimits()} }
 func NewProfiler(l Limits) (*Profiler, error) {
-	if l.MaxFileSize <= 0 || l.MaxFiles <= 0 || l.MaxDepth <= 0 || l.MaxComponents <= 0 {
-		return nil, errors.New("structuredlock limits must be positive")
+	if l.MaxFileSize <= 0 || l.MaxFiles < 0 || l.MaxDepth <= 0 || l.MaxComponents <= 0 {
+		return nil, errors.New("structuredlock limits must be positive except MaxFiles, which may be zero")
 	}
 	return &Profiler{l}, nil
 }
@@ -94,7 +94,7 @@ func (p *Profiler) profile(root string, cache *traversal.Cache) (Fragment, error
 			entries, readErr := cache.ReadDir(dir, d, 128)
 			for _, e := range entries {
 				files++
-				if files > p.limits.MaxFiles {
+				if p.limits.MaxFiles > 0 && files > p.limits.MaxFiles {
 					return errors.New("structuredlock file limit exceeded")
 				}
 				name := path.Join(dir, e.Name())
@@ -149,6 +149,11 @@ func (p *Profiler) profile(root string, cache *traversal.Cache) (Fragment, error
 					return fmt.Errorf("%s: file size limit exceeded", name)
 				}
 				if err := s.parse(name, b); err != nil {
+					var unsupported unsupportedPNPMVersion
+					if errors.As(err, &unsupported) {
+						s.warn(name, err.Error()+"; lockfile skipped (dependency inventory incomplete)")
+						continue
+					}
 					return fmt.Errorf("%s: %w", name, err)
 				}
 				s.fragment.Ecosystems = append(s.fragment.Ecosystems, domain.EcosystemUsage{Name: eco, Lockfiles: []string{name}})

@@ -119,7 +119,37 @@ func (s *state) parseTOML(file string, b []byte) error {
 	}
 	return nil
 }
+
+type unsupportedPNPMVersion string
+
+func (v unsupportedPNPMVersion) Error() string {
+	return fmt.Sprintf("unsupported pnpm lockfile version %q", string(v))
+}
+
 func (s *state) parsePNPM(file string, b []byte) error {
+	// Probe the version before decoding package records: older pnpm formats use
+	// different shapes that cannot be decoded into the v6/v9 schema.
+	var header map[string]yaml.Node
+	if err := decodeYAML(b, &header); err != nil {
+		return err
+	}
+	versionNode, ok := header["lockfileVersion"]
+	if !ok || versionNode.Kind != yaml.ScalarNode {
+		return errors.New("missing or invalid pnpm lockfile version")
+	}
+	var version string
+	if err := versionNode.Decode(&version); err != nil || strings.TrimSpace(version) == "" {
+		return errors.New("missing or invalid pnpm lockfile version")
+	}
+	if version != "6.0" && version != "9.0" && version != "6" && version != "9" {
+		// Node decoding does not validate nested duplicate keys. Validate the
+		// entire unsupported file before allowing it to be skipped.
+		var validated map[string]any
+		if err := decodeYAML(b, &validated); err != nil {
+			return err
+		}
+		return unsupportedPNPMVersion(version)
+	}
 	var lock struct {
 		Version  string `yaml:"lockfileVersion"`
 		Packages map[string]struct {
@@ -138,9 +168,7 @@ func (s *state) parsePNPM(file string, b []byte) error {
 	if err := decodeYAML(b, &lock); err != nil {
 		return err
 	}
-	if lock.Version != "6.0" && lock.Version != "9.0" && lock.Version != "6" && lock.Version != "9" {
-		return fmt.Errorf("unsupported pnpm lockfile version %q", lock.Version)
-	}
+
 	for _, key := range keys(lock.Packages) {
 		p := lock.Packages[key]
 		identity := strings.TrimPrefix(key, "/")

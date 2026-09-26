@@ -13,9 +13,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pelletier/go-toml/v2"
 	"vulns-news/src/domain"
 	"vulns-news/src/traversal"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 type Fragment struct {
@@ -26,7 +27,6 @@ type Fragment struct {
 
 const (
 	maxDepth      = 32
-	maxEntries    = 20000
 	maxFileBytes  = 2 << 20
 	maxTotalBytes = 16 << 20
 	maxComponents = 50000
@@ -66,7 +66,7 @@ func profileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 	defer r.Close()
 	s := &state{seen: map[string]bool{}}
 	documents := map[string]map[string]any{}
-	entries, total := 0, 0
+	total := 0
 	var walk func(string, int) error
 	walk = func(dir string, depth int) error {
 		if depth > maxDepth {
@@ -94,10 +94,6 @@ func profileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 		for {
 			batch, readErr := cache.ReadDir(dir, d, 128)
 			for _, e := range batch {
-				entries++
-				if entries > maxEntries {
-					return errors.New("manifestextra entry limit exceeded")
-				}
 				file := path.Join(dir, e.Name())
 				if e.Type()&os.ModeSymlink != 0 {
 					if e.Name() == ".cargo" || (path.Base(dir) == ".cargo" && (e.Name() == "config" || e.Name() == "config.toml")) {
@@ -179,6 +175,16 @@ func profileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 	if err := walk(".", 0); err != nil {
 		return Fragment{}, err
 	}
+	// Cargo overrides may affect other manifests in the same workspace. We do
+	// not resolve workspaces, so none of their manifest declarations can be
+	// trusted as public-registry identities when an override is present.
+	var cargoOverrides []string
+	for file, doc := range documents {
+		if path.Base(file) == "Cargo.toml" && (doc["patch"] != nil || doc["replace"] != nil) {
+			cargoOverrides = append(cargoOverrides, file)
+		}
+	}
+	sort.Strings(cargoOverrides)
 	usages := map[string]*domain.EcosystemUsage{}
 	for _, file := range keys(documents) {
 		eco := "PyPI"
@@ -192,6 +198,10 @@ func profileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 			usages[eco].Lockfiles = append(usages[eco].Lockfiles, file)
 		} else {
 			usages[eco].Manifests = append(usages[eco].Manifests, file)
+		}
+		if eco == "crates.io" && len(cargoOverrides) > 0 {
+			s.warn(file, "Cargo manifest dependencies skipped: patch/replace overrides in "+strings.Join(cargoOverrides, ", ")+" require workspace resolution (inventory incomplete)")
+			continue
 		}
 		if err := s.parse(file, documents[file]); err != nil {
 			return Fragment{}, fmt.Errorf("%s: %w", file, err)

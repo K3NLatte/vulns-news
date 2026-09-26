@@ -234,9 +234,30 @@ func TestLimits(t *testing.T) {
 	if _, err := p.Profile(fixture(t, map[string]string{"requirements.txt": "a==1"})); err != nil {
 		t.Fatalf("exact boundary: %v", err)
 	}
-	for _, limits := range []Limits{{}, {0, 1, 1, 1}, {1, 0, 1, 1}, {1, 1, 0, 1}, {1, 1, 1, 0}, {-1, 1, 1, 1}} {
+	for _, limits := range []Limits{{}, {0, 1, 1, 1}, {1, 0, 1, 1}, {1, 1, -1, 1}, {1, 1, 1, 0}, {-1, 1, 1, 1}} {
 		if _, err := NewProfiler(limits); err == nil {
 			t.Fatalf("accepted limits: %#v", limits)
+		}
+	}
+}
+
+func TestUnlimitedEntriesByDefault(t *testing.T) {
+	if DefaultLimits().MaxFiles != 0 {
+		t.Fatal("default entry limit must be disabled")
+	}
+	root := fixture(t, map[string]string{
+		"a/requirements.txt": "a==1",
+		"b/requirements.txt": "b==1",
+	})
+	limits := DefaultLimits()
+	p, err := NewProfiler(limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, profile := range []func(string) (ProfileFragment, error){Profile, p.Profile} {
+		got, err := profile(root)
+		if err != nil || len(got.Components) != 2 {
+			t.Fatalf("unlimited entries: %+v, %v", got, err)
 		}
 	}
 }

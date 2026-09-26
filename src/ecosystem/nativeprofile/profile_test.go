@@ -64,6 +64,21 @@ repo-url = "https://example.com/package.git"
 uuid = "7876af07-990d-54b4-ab0e-23690620f79a"
 `
 
+func TestLargeMonorepoTraversal(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "app/vcpkg.json", `{"name":"app","dependencies":["zlib"]}`)
+	for i := 0; i < 20_001; i++ {
+		put(t, root, fmt.Sprintf("sources/%05d.ts", i), "")
+	}
+	got, err := Profile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components) != 1 || got.Components[0].Name != "zlib" {
+		t.Fatalf("missing dependency in large tree: %+v", got.Components)
+	}
+}
+
 func TestInventory(t *testing.T) {
 	root := t.TempDir()
 	fixtures := map[string]string{"native/conan.lock": conanFixture, "native/vcpkg.json": vcpkgFixture, "ios/Podfile.lock": podsFixture, "science/Manifest.toml": juliaFixture}

@@ -1,6 +1,7 @@
 package manifestextra
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -147,6 +148,30 @@ url = "https://internal.example/simple"
 		t.Fatalf("private packages leaked: %+v", f)
 	}
 }
+func TestCargoOverridesSkipAllCargoManifests(t *testing.T) {
+	for _, override := range []string{"[patch.crates-io]\nserde = {path = '../local'}\n", "[replace]\n'serde:1.0.0' = {path = '../local'}\n"} {
+		root := t.TempDir()
+		fixture(t, root, "Cargo.toml", override)
+		fixture(t, root, "packages/app/Cargo.toml", "[dependencies]\nserde = '=1.0.0'\n")
+		fixture(t, root, "packages/app/pyproject.toml", "[project]\ndependencies = ['requests==2.32.3']\n")
+		got, err := Profile(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Components) != 1 || got.Components[0].Name != "requests" {
+			t.Fatalf("Cargo identities leaked or Python dependencies lost: %+v", got.Components)
+		}
+		if len(got.Warnings) != 2 {
+			t.Fatalf("expected a warning for each Cargo manifest: %v", got.Warnings)
+		}
+		for _, warning := range got.Warnings {
+			if !strings.Contains(warning, "Cargo.toml:") || !strings.Contains(warning, "patch/replace overrides in Cargo.toml") || !strings.Contains(warning, "incomplete") {
+				t.Fatalf("missing override source/coverage warning: %s", warning)
+			}
+		}
+	}
+}
+
 func TestErrorsAreAtomic(t *testing.T) {
 	cases := []struct{ name, body string }{
 		{"pyproject.toml", "[project\n"},
@@ -155,7 +180,7 @@ func TestErrorsAreAtomic(t *testing.T) {
 		{"pyproject.toml", "project = 42"},
 		{"Cargo.toml", "[dependencies]\nserde = false"},
 		{"Cargo.toml", "dependencies = []"},
-		{"Cargo.toml", "[patch.crates-io]\nserde = {path = '../serde'}"},
+		{"Cargo.toml", "[patch.crates-io\nserde = {path = '../serde'}"},
 		{"pdm.lock", "[metadata]\nlock_version = '99.0'"},
 		{"pdm.lock", "package = 42\n[metadata]\nlock_version = '4.5'"},
 		{"pdm.lock", "[[package]]\nname = 'bad'\nversion = '*'\n[metadata]\nlock_version = '4.5'"},
@@ -207,6 +232,21 @@ func TestBounds(t *testing.T) {
 		}
 	})
 }
+func TestLargeMonorepoTraversal(t *testing.T) {
+	root := t.TempDir()
+	fixture(t, root, "app/pyproject.toml", "[project]\ndependencies = ['requests==2.32.3']\n")
+	for i := 0; i < 20_001; i++ {
+		fixture(t, root, fmt.Sprintf("sources/%05d.ts", i), "")
+	}
+	got, err := Profile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components) != 1 || got.Components[0].Name != "requests" {
+		t.Fatalf("missing dependency in large tree: %+v", got.Components)
+	}
+}
+
 func TestSymlinksAndIgnoredDirectories(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

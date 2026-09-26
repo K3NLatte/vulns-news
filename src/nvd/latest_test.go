@@ -72,7 +72,7 @@ func TestFetchLatestSeeksAscendingTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(queries) != 2 || queries[0].ResultsPerPage != 1 || queries[1].StartIndex != 350 || queries[1].ResultsPerPage != 200 {
+	if len(queries) != 3 || queries[0].ResultsPerPage != 200 || queries[1].StartIndex != 400 || queries[2].StartIndex != 200 {
 		t.Fatalf("queries = %#v", queries)
 	}
 	if len(page.Vulnerabilities) != 200 || page.Vulnerabilities[0].CVE.ID != "CVE-2026-0549" || page.Vulnerabilities[199].CVE.ID != "CVE-2026-0350" {
@@ -82,6 +82,31 @@ func TestFetchLatestSeeksAscendingTail(t *testing.T) {
 		if q.PublishedEnd.After(asOf) {
 			t.Fatal("cutoff moved")
 		}
+	}
+}
+
+func TestFetchLatestUsesAlignedPagesFor2480Results(t *testing.T) {
+	asOf := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	var records []Vulnerability
+	for i := 0; i < 2480; i++ {
+		records = append(records, latestItem(i, asOf.Add(time.Duration(i-2479)*time.Minute)))
+	}
+	var queries []Query
+	client := latestTestClient(t, records, &queries)
+	page, err := client.fetchLatest(context.Background(), LatestOptions{AsOf: asOf}, noLatestWait)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queries) != 3 {
+		t.Fatalf("queries = %#v", queries)
+	}
+	for i, index := range []int{0, 2400, 2200} {
+		if queries[i].StartIndex != index || queries[i].ResultsPerPage != 200 {
+			t.Fatalf("query %d = %#v", i, queries[i])
+		}
+	}
+	if len(page.Vulnerabilities) != 200 || page.Vulnerabilities[0].CVE.ID != "CVE-2026-2479" || page.Vulnerabilities[199].CVE.ID != "CVE-2026-2280" {
+		t.Fatalf("wrong latest selection: %#v", page)
 	}
 }
 
@@ -128,7 +153,7 @@ func TestFetchLatestReadsEarlierTailForDuplicates(t *testing.T) {
 	var queries []Query
 	client := latestTestClient(t, records, &queries)
 	page, err := client.fetchLatest(context.Background(), LatestOptions{AsOf: asOf}, noLatestWait)
-	if err != nil || len(page.Vulnerabilities) != 200 || len(queries) != 3 || queries[2].StartIndex != 0 {
+	if err != nil || len(page.Vulnerabilities) != 200 || len(queries) != 2 || queries[0].StartIndex != 0 || queries[1].StartIndex != 200 {
 		t.Fatalf("count=%d queries=%#v err=%v", len(page.Vulnerabilities), queries, err)
 	}
 	seen := map[string]bool{}
@@ -137,6 +162,27 @@ func TestFetchLatestReadsEarlierTailForDuplicates(t *testing.T) {
 			t.Fatal("duplicate returned")
 		}
 		seen[item.CVE.ID] = true
+	}
+}
+
+func TestFetchLatestReusesProbeWithinOneRequestBudget(t *testing.T) {
+	asOf := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	start := asOf.Add(-time.Hour)
+	records := []Vulnerability{latestItem(1, start), latestItem(2, asOf)}
+	var queries []Query
+	client := latestTestClient(t, records, &queries)
+	page, err := client.FetchLatest(context.Background(), LatestOptions{
+		AsOf: asOf, PublishedStart: start, PublishedEnd: asOf,
+		Limit: 2, MaxRequests: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queries) != 1 || queries[0].StartIndex != 0 || queries[0].ResultsPerPage != 200 || !queries[0].PublishedStart.Equal(start) || !queries[0].PublishedEnd.Equal(asOf) {
+		t.Fatalf("queries=%#v", queries)
+	}
+	if page.TotalResults != 2 || page.ResultsPerPage != 2 || len(page.Vulnerabilities) != 2 || page.Vulnerabilities[0].CVE.ID != records[1].CVE.ID || page.Vulnerabilities[1].CVE.ID != records[0].CVE.ID {
+		t.Fatalf("page=%#v", page)
 	}
 }
 
@@ -198,13 +244,23 @@ func TestFetchLatestRejectsUnreliablePages(t *testing.T) {
 					w.WriteHeader(http.StatusTooManyRequests)
 					return
 				}
-				page := Page{TotalResults: 3, ResultsPerPage: 1, Vulnerabilities: []Vulnerability{latestItem(1, asOf.Add(-time.Hour))}}
+				page := Page{TotalResults: 203, ResultsPerPage: 200}
+				for i := 0; i < 200; i++ {
+					page.Vulnerabilities = append(page.Vulnerabilities, latestItem(i, asOf.Add(-3*time.Hour)))
+				}
+				wantIndex := "0"
 				if calls > 1 {
+					wantIndex = "200"
+					page.StartIndex = 200
 					page.ResultsPerPage = 3
-					page.Vulnerabilities = []Vulnerability{latestItem(1, asOf.Add(-time.Hour)), latestItem(2, asOf), latestItem(3, asOf)}
+					page.Vulnerabilities = []Vulnerability{latestItem(200, asOf.Add(-time.Hour)), latestItem(201, asOf), latestItem(202, asOf)}
 					switch mode {
 					case "changed count":
-						page.TotalResults = 4
+						// Keep the changed page internally valid so the stable-total
+						// check, rather than metadata validation, must reject it.
+						page.TotalResults = 204
+						page.ResultsPerPage = 4
+						page.Vulnerabilities = append(page.Vulnerabilities, latestItem(203, asOf))
 					case "short page":
 						page.Vulnerabilities = page.Vulnerabilities[:1]
 					case "wrong index":
@@ -217,6 +273,9 @@ func TestFetchLatestRejectsUnreliablePages(t *testing.T) {
 						page.Vulnerabilities[2] = latestItem(3, asOf.Add(time.Hour))
 					}
 				}
+				if r.URL.Query().Get("startIndex") != wantIndex || r.URL.Query().Get("resultsPerPage") != "200" {
+					t.Errorf("unexpected page query: %v", r.URL.Query())
+				}
 				_ = json.NewEncoder(w).Encode(page)
 			}))
 			defer server.Close()
@@ -228,6 +287,12 @@ func TestFetchLatestRejectsUnreliablePages(t *testing.T) {
 			var incomplete *IncompleteError
 			if !errors.As(err, &incomplete) {
 				t.Fatalf("err=%v", err)
+			}
+			if mode != "HTTP 429" && calls != 2 {
+				t.Fatalf("expected failure on second page, got %d requests: %v", calls, err)
+			}
+			if mode == "changed count" && !strings.Contains(err.Error(), "result count changed") {
+				t.Fatalf("expected stable-total failure, got %v", err)
 			}
 		})
 	}

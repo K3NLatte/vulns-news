@@ -25,8 +25,11 @@ Supported inputs:
 
 Git, local paths, workspaces, patches, alternate registries, unknown protocols,
 and unsupported exact identities are skipped with source-qualified warnings.
-Syntax/schema decoding failures, unsupported lockfile formats, and resource
-limit failures return an error and an empty fragment, never a partial inventory.
+Unsupported pnpm versions (including v5.3) are validated as YAML, then skipped
+with a path/version warning that the dependency inventory is incomplete; other
+supported lockfiles continue to be profiled. Missing version, syntax/schema
+decoding failures, unsupported non-pnpm formats, and resource limit failures
+return an error and an empty fragment, never a partial inventory.
 Yarn classic is not YAML and has a separate strict grammar; TOML and YAML parsing
 use `github.com/pelletier/go-toml/v2` v2.2.4 and `gopkg.in/yaml.v3` v3.0.1.
 
@@ -54,9 +57,10 @@ are merged by name with sorted lockfile paths; warnings are sorted.
 
 ## Bounds and filesystem policy
 
-`NewProfiler(Limits)` allows explicit positive bounds. Defaults: 10 MiB per
-lockfile, 100,000 visited directory entries, depth 64, and 100,000 registry
-component candidates (before deduplication). Directory entries are read in
+`NewProfiler(Limits)` allows explicit bounds. Defaults: 10 MiB per lockfile,
+depth 64, and 100,000 registry component candidates (before deduplication).
+There is no default visited-entry cap; `MaxFiles: 0` means unlimited entries,
+while a positive value enforces a custom cap. Directory entries are read in
 batches. Dependency stores, virtual environments, `.git`, and Cargo `target`
 are not traversed. Root symlinks are rejected; descendant symlinks and selected
 special files are skipped with warnings. All traversal and reads use `os.Root`;

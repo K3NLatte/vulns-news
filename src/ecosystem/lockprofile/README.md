@@ -112,8 +112,8 @@ fixtures already declare the required remote.
 - The root must be a directory and not itself a symlink. Descendant symlinks and
   special files are skipped. Files are rechecked before reading.
 - `.git`, `node_modules`, `vendor`, `.gradle`, and `.build` directories are skipped.
-- Limits: 100,000 entries (including directories/skipped entries), 64 directory
-  levels below the root, 4 MiB per recognized input, and 32 MiB total input.
+- There is no traversal-entry cap. Limits remain: 64 directory levels below
+  the root, 4 MiB per recognized input, and 32 MiB total input.
 - Directories are read one entry at a time, not allocated wholesale. Reads are
   bounded even if a file grows. JSON/XML nesting is limited to 64 levels; XML
   additionally permits at most 50,000 elements.

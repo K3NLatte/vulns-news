@@ -150,8 +150,14 @@ func (c *Client) fetchLatest(ctx context.Context, options LatestOptions, wait fu
 		if remaining := page.TotalResults - query.StartIndex; remaining < expected {
 			expected = remaining
 		}
-		if page.TotalResults < 0 || page.StartIndex != query.StartIndex || expected < 0 || len(page.Vulnerabilities) != expected || page.ResultsPerPage != expected {
-			return Page{}, errors.New("inconsistent NVD pagination metadata or short page")
+		actualCount := len(page.Vulnerabilities)
+		if page.TotalResults < 0 || page.StartIndex != query.StartIndex || expected < 0 || actualCount != expected || page.ResultsPerPage != expected {
+			return Page{}, fmt.Errorf(
+				"inconsistent NVD pagination metadata: requested startIndex=%d resultsPerPage=%d; expected response startIndex=%d resultsPerPage=%d vulnerability_count=%d; got startIndex=%d resultsPerPage=%d totalResults=%d vulnerability_count=%d",
+				query.StartIndex, query.ResultsPerPage,
+				query.StartIndex, expected, expected,
+				page.StartIndex, page.ResultsPerPage, page.TotalResults, actualCount,
+			)
 		}
 		return page, nil
 	}
@@ -160,21 +166,21 @@ func (c *Client) fetchLatest(ctx context.Context, options LatestOptions, wait fu
 		if explicit && start.Before(options.PublishedStart) {
 			start = options.PublishedStart.UTC()
 		}
-		query := Query{PublishedStart: start, PublishedEnd: end, ResultsPerPage: 1}
+		query := Query{PublishedStart: start, PublishedEnd: end, ResultsPerPage: maxPageSize}
 		probe, err := fetch(query)
 		if err != nil {
 			return result(err)
 		}
-		// Seek from the ascending result set's tail. Read earlier chunks only
-		// when duplicates leave fewer unique CVEs than requested.
+		// Seek backwards using fixed-size, aligned pages rather than an arbitrary
+		// tail offset. The final page can be partial; read earlier pages until
+		// enough unique CVEs have been collected.
 		upper := probe.TotalResults
 		var newerBoundary time.Time
 		for upper > 0 {
-			size := min(maxPageSize, upper)
-			query.StartIndex = upper - size
-			query.ResultsPerPage = size
+			query.StartIndex = ((upper - 1) / maxPageSize) * maxPageSize
+			query.ResultsPerPage = maxPageSize
 			page := probe
-			if probe.TotalResults != 1 {
+			if query.StartIndex != 0 {
 				page, err = fetch(query)
 				if err != nil {
 					return result(err)

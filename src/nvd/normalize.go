@@ -1,6 +1,8 @@
 package nvd
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -36,7 +38,7 @@ func Normalize(cve CVE) (domain.NormalizedVulnerability, error) {
 		Severity:    severity,
 		CVSS:        score,
 		Weaknesses:  normalizeWeaknesses(cve.Weaknesses),
-		Affected:    normalizeAffected(id, cve.Configurations),
+		Affected:    affectedTargets(id, cve),
 		References:  normalizeReferences(cve.References),
 	}, nil
 }
@@ -59,16 +61,24 @@ func parseNVDTime(value string) (time.Time, error) {
 }
 
 func englishValue(values []LanguageValue) string {
+	fallback := ""
 	for _, value := range values {
+		text := strings.TrimSpace(value.Value)
+		if text == "" {
+			continue
+		}
 		if strings.EqualFold(strings.TrimSpace(value.Lang), "en") {
-			return strings.TrimSpace(value.Value)
+			return text
+		}
+		if fallback == "" {
+			fallback = text
 		}
 	}
-	return ""
+	return fallback
 }
 
 func preferredCVSS(metrics Metrics) (string, *float64) {
-	for _, generation := range [][]CVSSMetric{metrics.CVSSMetricV31, metrics.CVSSMetricV30, metrics.CVSSMetricV2} {
+	for _, generation := range [][]CVSSMetric{metrics.CVSSMetricV40, metrics.CVSSMetricV31, metrics.CVSSMetricV30, metrics.CVSSMetricV2} {
 		if metric, ok := preferredMetric(generation); ok {
 			severity := strings.TrimSpace(metric.CVSSData.BaseSeverity)
 			if severity == "" {
@@ -83,14 +93,16 @@ func preferredCVSS(metrics Metrics) (string, *float64) {
 
 func preferredMetric(metrics []CVSSMetric) (CVSSMetric, bool) {
 	for _, metric := range metrics {
-		if strings.EqualFold(strings.TrimSpace(metric.Type), "Primary") {
+		if metric.CVSSData.hasScore() && strings.EqualFold(strings.TrimSpace(metric.Type), "Primary") {
 			return metric, true
 		}
 	}
-	if len(metrics) == 0 {
-		return CVSSMetric{}, false
+	for _, metric := range metrics {
+		if metric.CVSSData.hasScore() {
+			return metric, true
+		}
 	}
-	return metrics[0], true
+	return CVSSMetric{}, false
 }
 
 func normalizeWeaknesses(weaknesses []Weakness) []string {
@@ -118,49 +130,132 @@ func normalizeReferences(references []Reference) []domain.Reference {
 		if address == "" {
 			continue
 		}
-		if _, exists := seen[address]; exists {
+		// Deduplicate only identical metadata; a URL can have several sources.
+		keyBytes, _ := json.Marshal(Reference{URL: address, Source: reference.Source, Tags: reference.Tags})
+		key := string(keyBytes)
+		if _, exists := seen[key]; exists {
 			continue
 		}
-		seen[address] = struct{}{}
+		seen[key] = struct{}{}
 		result = append(result, domain.Reference{
-			URL:  address,
-			Tags: append([]string(nil), reference.Tags...),
+			URL:    address,
+			Source: reference.Source,
+			Tags:   append([]string(nil), reference.Tags...),
 		})
 	}
 	return result
 }
 
+// affectedTargets retains source status rules, including default-affected
+// exceptions. packageName alone proves neither ecosystem nor PURL, so these
+// remain product candidates. Unknown schemes deliberately prevent existing
+// version evaluators from turning source boundaries into applicability claims.
+func affectedTargets(cveID string, cve CVE) []domain.AffectedTarget {
+	result := make([]domain.AffectedTarget, 0)
+	hasUsableAffectedData := false
+	for _, group := range cve.Affected {
+		for _, data := range group.AffectedData {
+			target := domain.AffectedTarget{
+				Kind:   domain.AffectedProduct,
+				Vendor: strings.TrimSpace(data.Vendor), Product: strings.TrimSpace(data.Product),
+				PackageName:   strings.TrimSpace(data.PackageName),
+				DefaultStatus: strings.TrimSpace(data.DefaultStatus),
+				CPEs:          []string{}, Aliases: []string{}, Constraints: []domain.VersionConstraint{},
+			}
+			for _, cpe := range data.CPEs {
+				if strings.TrimSpace(cpe) != "" {
+					target.CPEs = append(target.CPEs, cpe)
+				}
+			}
+			// Vendor alone is not a usable product identity.
+			if target.Product == "" && target.PackageName == "" && len(target.CPEs) == 0 {
+				continue
+			}
+			hasUsableAffectedData = true
+			candidate := target.DefaultStatus != "unaffected"
+			for _, version := range data.Versions {
+				status := strings.TrimSpace(version.Status)
+				if status != "unaffected" {
+					candidate = true
+				}
+				constraint := domain.VersionConstraint{Scheme: "unknown", Status: status,
+					VersionEndExcluding: strings.TrimSpace(version.LessThan),
+					VersionEndIncluding: strings.TrimSpace(version.LessThanOrEqual)}
+				if constraint.VersionEndExcluding != "" || constraint.VersionEndIncluding != "" {
+					constraint.VersionStartIncluding = strings.TrimSpace(version.Version)
+				} else {
+					constraint.Expression = strings.TrimSpace(version.Version)
+				}
+				target.Constraints = append(target.Constraints, constraint)
+			}
+			if candidate {
+				target.ID = targetID(cveID, target)
+				result = append(result, target)
+			}
+		}
+	}
+	// An identified entry can explicitly exclude every version. Do not promote
+	// contradictory configuration evidence just because it emitted no candidate.
+	if !hasUsableAffectedData {
+		result = normalizeAffected(cveID, cve.Configurations)
+	}
+	return result
+}
+
+// targetID is bounded even for arbitrarily long source identities, and includes
+// version/status facts so distinct ranges do not share an ID. Identical facts
+// intentionally have identical IDs; source ordering does not affect the hash.
+func targetID(cveID string, target domain.AffectedTarget) string {
+	target.ID = ""
+	data, _ := json.Marshal(struct {
+		CVE    string
+		Target domain.AffectedTarget
+	}{cveID, target})
+	return fmt.Sprintf("nvd:%x", sha256.Sum256(data))
+}
+
+// Plain OR leaves retain CPE version comparisons for ecosystem-aware evaluators.
+// AND, negation, unknown operators, and nested node expressions remain candidate
+// facts only: flattening cannot establish their environmental applicability.
+// An omitted operator retains compatibility with simple legacy configurations.
 func normalizeAffected(cveID string, configurations []Configuration) []domain.AffectedTarget {
 	var result []domain.AffectedTarget
 	for _, configuration := range configurations {
 		for _, node := range configuration.Nodes {
-			appendNodeTargets(cveID, node, &result)
+			appendNodeTargets(cveID, node, complexOperator(configuration.Operator, configuration.Negate), &result)
 		}
 	}
 	return result
 }
 
-func appendNodeTargets(cveID string, node Node, result *[]domain.AffectedTarget) {
+func complexOperator(operator string, negate bool) bool {
+	operator = strings.ToUpper(strings.TrimSpace(operator))
+	return negate || (operator != "" && operator != "OR")
+}
+
+func appendNodeTargets(cveID string, node Node, complexContext bool, result *[]domain.AffectedTarget) {
+	// Keep complexity sticky through descendants; a simple child cannot erase
+	// an ancestor's prerequisites. Nested expressions are conservatively unknown.
+	complexContext = complexContext || complexOperator(node.Operator, node.Negate) || len(node.Children) > 0
+	scheme := "cpe"
+	if complexContext {
+		scheme = "unknown"
+	}
 	for _, match := range node.CPEMatch {
 		if !match.Vulnerable || strings.TrimSpace(match.Criteria) == "" {
 			continue
 		}
 		criteria := strings.TrimSpace(match.Criteria)
-		id := strings.TrimSpace(match.MatchCriteriaID)
-		if id == "" {
-			id = cveID + ":" + criteria
-		}
 		vendor, product, version, _ := parseCPE23(criteria)
 		target := domain.AffectedTarget{
-			ID:      id,
 			Kind:    domain.AffectedProduct,
 			Vendor:  vendor,
 			Product: product,
-			CPEs:    []string{criteria},
+			CPEs:    []string{match.Criteria},
 			Aliases: []string{},
 		}
 		constraint := domain.VersionConstraint{
-			Scheme:                "cpe",
+			Scheme:                scheme,
 			VersionStartIncluding: strings.TrimSpace(match.VersionStartIncluding),
 			VersionStartExcluding: strings.TrimSpace(match.VersionStartExcluding),
 			VersionEndIncluding:   strings.TrimSpace(match.VersionEndIncluding),
@@ -174,10 +269,11 @@ func appendNodeTargets(cveID string, node Node, result *[]domain.AffectedTarget)
 		} else {
 			target.Constraints = []domain.VersionConstraint{}
 		}
+		target.ID = targetID(cveID, target)
 		*result = append(*result, target)
 	}
 	for _, child := range node.Children {
-		appendNodeTargets(cveID, child, result)
+		appendNodeTargets(cveID, child, complexContext, result)
 	}
 }
 

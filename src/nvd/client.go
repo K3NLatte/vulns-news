@@ -31,7 +31,7 @@ type Config struct {
 	MaxResponseBytes int64
 }
 
-// Query selects a publication and/or modification window and one result page.
+// Query selects one result page, optionally filtered by publication or modification.
 // Every non-zero start must have a matching end and vice versa. ResultsPerPage
 // defaults to 200 and cannot exceed 200.
 type Query struct {
@@ -101,7 +101,7 @@ func NewClient(config Config) (*Client, error) {
 	}, nil
 }
 
-// FetchPage fetches one page for a publication and/or modification window.
+// FetchPage fetches one page, optionally filtered by publication or modification.
 func (c *Client) FetchPage(ctx context.Context, query Query) (Page, error) {
 	values, err := queryValues(query)
 	if err != nil {
@@ -167,9 +167,6 @@ func queryValues(query Query) (url.Values, error) {
 	}
 	if err := validateWindow("modified", query.ModifiedStart, query.ModifiedEnd); err != nil {
 		return nil, err
-	}
-	if query.PublishedStart.IsZero() && query.ModifiedStart.IsZero() {
-		return nil, errors.New("NVD published or modified window is required")
 	}
 
 	values := make(url.Values)

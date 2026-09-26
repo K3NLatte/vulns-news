@@ -22,7 +22,6 @@ import (
 // Fixed budgets apply to one Inspect invocation. They bound work and retained
 // input, not wall-clock time (filesystem operations may block).
 const (
-	MaxEntries    = 10000
 	MaxFiles      = 512
 	MaxFileBytes  = 1 << 20
 	MaxTotalBytes = 16 << 20
@@ -89,11 +88,11 @@ type source struct {
 }
 
 type inspector struct {
-	cache   *traversal.Cache
-	root    *os.Root
-	fset    *token.FileSet
-	report  Report
-	entries int
+	cache  *traversal.Cache
+	root   *os.Root
+	fset   *token.FileSet
+	report Report
+
 	sources []source
 }
 
@@ -122,7 +121,7 @@ func inspect(root string, cache *traversal.Cache) (Report, error) {
 			"Only direct imported-package selector calls are observed; dot imports, function aliases, methods, interfaces, reflection, and dynamic dispatch are not resolved.",
 			"All regular .go files are considered, including tests, generated files, vendor trees, and files excluded by build constraints; no build configuration is selected.",
 			"Symlinks and non-regular files are skipped. Inspection is not an atomic filesystem snapshot; concurrent changes can make evidence inconsistent.",
-			"Fixed entry, file, byte, depth, and finding budgets apply; filesystem blocking and parser wall-clock time are not bounded.",
+			"Fixed Go-file, byte, depth, and finding budgets apply; filesystem blocking and parser wall-clock time are not bounded.",
 		},
 	}}
 	// Clean trailing separators so Lstat cannot dereference a symlink root
@@ -173,10 +172,7 @@ func (i *inspector) walk(dir string, depth int) error {
 	for {
 		entries, readErr := i.cache.ReadDir(dir, f, 64)
 		for _, entry := range entries {
-			i.entries++
-			if i.entries > MaxEntries {
-				return fmt.Errorf("%w: directory entries", ErrLimit)
-			}
+
 			name := filepath.Join(dir, entry.Name())
 			info, err := i.root.Lstat(name)
 			if err != nil {

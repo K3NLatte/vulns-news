@@ -33,7 +33,7 @@ var (
 // Limits bounds work performed on untrusted repository contents.
 type Limits struct {
 	MaxFileSize int64
-	MaxFiles    int
+	MaxFiles    int // 0 disables the traversal-entry limit.
 	MaxDepth    int
 }
 
@@ -41,7 +41,7 @@ type Limits struct {
 func DefaultLimits() Limits {
 	return Limits{
 		MaxFileSize: 10 << 20,
-		MaxFiles:    100_000,
+		MaxFiles:    0,
 		MaxDepth:    64,
 	}
 }
@@ -62,11 +62,11 @@ func New() *Profiler {
 	return &Profiler{limits: DefaultLimits()}
 }
 
-// NewProfiler returns a profiler configured with limits. Every limit must be
-// positive so a zero value cannot accidentally disable a safety boundary.
+// NewProfiler returns a profiler configured with limits. MaxFiles may be zero
+// for unlimited entries; all other limits must be positive.
 func NewProfiler(limits Limits) (*Profiler, error) {
-	if limits.MaxFileSize <= 0 || limits.MaxFiles <= 0 || limits.MaxDepth <= 0 {
-		return nil, errors.New("npm profiler limits must be positive")
+	if limits.MaxFileSize <= 0 || limits.MaxFiles < 0 || limits.MaxDepth <= 0 {
+		return nil, errors.New("npm profiler limits must be positive except MaxFiles, which may be zero")
 	}
 	return &Profiler{limits: limits}, nil
 }
@@ -195,7 +195,7 @@ func (p *Profiler) discover(fsys fs.FS) ([]string, error) {
 		}
 		if filePath != "." {
 			seen++
-			if seen > p.limits.MaxFiles {
+			if p.limits.MaxFiles > 0 && seen > p.limits.MaxFiles {
 				return ErrTooManyFiles
 			}
 		}

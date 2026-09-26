@@ -64,8 +64,9 @@ unrelated metadata fields are ignored.
   race (including replacement with a special file).
 - Recurses through nested directories, excluding `.git`. Does not resolve include
   paths, source URLs, Julia paths, or Conan paths found in metadata.
-- Limits: depth 32, 20,000 directory entries, 2 MiB per recognized file, 16 MiB
-  total recognized input, and 50,000 distinct components. Limit failures are
+- There is no directory-entry cap. Limits remain: depth 32, 2 MiB per
+  recognized file, 16 MiB total recognized input, and 50,000 distinct
+  components. Limit failures are
   errors, not silently truncated output. YAML uses the existing decoder's alias
   protections; all parsers are additionally bounded by the input byte limits.
 - Sorts components by ID, ecosystem usages by name, paths and warnings

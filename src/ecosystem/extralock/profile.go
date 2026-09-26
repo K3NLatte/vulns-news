@@ -26,7 +26,7 @@ type Fragment struct {
 
 type limits struct{ fileBytes, totalBytes, entries, depth, components int }
 
-var defaultLimits = limits{4 << 20, 32 << 20, 100000, 64, 100000}
+var defaultLimits = limits{4 << 20, 32 << 20, 0, 64, 100000}
 
 type state struct {
 	Fragment
@@ -98,7 +98,7 @@ func profileWithTraversal(root string, lim limits, cache *traversal.Cache) (Frag
 			batch, readErr := cache.ReadDir(dir, d, 128)
 			for _, entry := range batch {
 				entries++
-				if entries > lim.entries {
+				if lim.entries > 0 && entries > lim.entries {
 					return errors.New("traversal entry limit exceeded")
 				}
 				name := path.Join(dir, entry.Name())

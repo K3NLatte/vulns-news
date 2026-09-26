@@ -97,9 +97,11 @@ files, hidden directories, and files excluded by platform/build constraints.
 There is no build selection, dependency graph, or module/workspace resolution.
 Parse and I/O failures stop inspection rather than silently omitting files.
 
+Directory entries are traversed in batches without a fixed count limit.
+
 | Budget | Maximum |
 | --- | ---: |
-| Directory entries examined (all file kinds) | 10,000 |
+
 | Go files parsed | 512 |
 | Bytes per Go file | 1 MiB |
 | Total source bytes | 16 MiB |

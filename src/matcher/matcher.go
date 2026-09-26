@@ -26,14 +26,36 @@ func New(versions VersionEvaluator) *Matcher {
 	return &Matcher{versions: versions}
 }
 
+// Trace explains the overall match decision and each affected target's result.
+type Trace struct {
+	Decision string           `json:"decision"`
+	Targets  []TargetDecision `json:"targets"`
+}
+
+// TargetDecision records the comparisons and retained matches for one target.
+type TargetDecision struct {
+	Target                  domain.AffectedTarget `json:"target"`
+	RepositoryItemsCompared int                   `json:"repository_items_compared"`
+	IdentityMatches         int                   `json:"identity_matches"`
+	VersionExcluded         int                   `json:"version_excluded"`
+	Matches                 []domain.TargetMatch  `json:"matches"`
+	Decision                string                `json:"decision"`
+}
+
 // Match returns a candidate only when at least one normalized identity matches
 // and no version evaluator has established that every match is unaffected.
 func (m *Matcher) Match(profile domain.RepositoryProfile, vulnerability domain.NormalizedVulnerability) (domain.MatchCandidate, bool, error) {
+	candidate, _, matched, err := m.MatchWithTrace(profile, vulnerability)
+	return candidate, matched, err
+}
+
+// MatchWithTrace returns the same candidate as Match plus per-target decisions.
+func (m *Matcher) MatchWithTrace(profile domain.RepositoryProfile, vulnerability domain.NormalizedVulnerability) (domain.MatchCandidate, Trace, bool, error) {
 	if profile.Repository.ID == "" || profile.Repository.CommitSHA == "" {
-		return domain.MatchCandidate{}, false, errors.New("repository ID and commit SHA are required")
+		return domain.MatchCandidate{}, Trace{}, false, errors.New("repository ID and commit SHA are required")
 	}
 	if vulnerability.ID == "" {
-		return domain.MatchCandidate{}, false, errors.New("vulnerability ID is required")
+		return domain.MatchCandidate{}, Trace{}, false, errors.New("vulnerability ID is required")
 	}
 
 	candidate := domain.MatchCandidate{
@@ -42,97 +64,99 @@ func (m *Matcher) Match(profile domain.RepositoryProfile, vulnerability domain.N
 		VulnerabilityID:  vulnerability.ID,
 		VulnerabilityRev: vulnerability.ModifiedAt,
 	}
+	trace := Trace{Targets: make([]TargetDecision, 0, len(vulnerability.Affected))}
+	anyIdentityMatch := false
 
 	for _, target := range vulnerability.Affected {
+		decision := TargetDecision{Target: target, Matches: []domain.TargetMatch{}}
+		addMatch := func(kind, id, ecosystem, version string, reason domain.MatchReason) error {
+			decision.IdentityMatches++
+			status, err := m.evaluateVersion(ecosystem, version, target.Constraints)
+			if err != nil {
+				return fmt.Errorf("evaluate %s %q against target %q: %w", kind, id, target.ID, err)
+			}
+			if status == domain.VersionNotAffected {
+				decision.VersionExcluded++
+				return nil
+			}
+			match := domain.TargetMatch{
+				RepositoryItemID: id,
+				AffectedTargetID: target.ID,
+				Reason:           reason,
+				VersionStatus:    status,
+				InstalledVersion: version,
+			}
+			candidate.Matches = append(candidate.Matches, match)
+			decision.Matches = append(decision.Matches, match)
+			return nil
+		}
+
 		switch target.Kind {
 		case domain.AffectedPackage:
+			decision.RepositoryItemsCompared = len(profile.Components)
 			for _, component := range profile.Components {
 				reason, matched := matchComponent(component, target)
-				if !matched {
-					continue
+				if matched {
+					if err := addMatch("component", component.ID, component.Ecosystem, component.Version, reason); err != nil {
+						return domain.MatchCandidate{}, Trace{}, false, err
+					}
 				}
-				versionStatus, err := m.evaluateVersion(component.Ecosystem, component.Version, target.Constraints)
-				if err != nil {
-					return domain.MatchCandidate{}, false, fmt.Errorf("evaluate component %q against target %q: %w", component.ID, target.ID, err)
-				}
-				if versionStatus == domain.VersionNotAffected {
-					continue
-				}
-				candidate.Matches = append(candidate.Matches, domain.TargetMatch{
-					RepositoryItemID: component.ID,
-					AffectedTargetID: target.ID,
-					Reason:           reason,
-					VersionStatus:    versionStatus,
-					InstalledVersion: component.Version,
-				})
 			}
 		case domain.AffectedProduct:
+			decision.RepositoryItemsCompared = len(profile.Products)
 			for _, product := range profile.Products {
 				reason, matched := matchProduct(product, target)
-				if !matched {
-					continue
+				if matched {
+					if err := addMatch("product", product.ID, product.Ecosystem, product.Version, reason); err != nil {
+						return domain.MatchCandidate{}, Trace{}, false, err
+					}
 				}
-				versionStatus, err := m.evaluateVersion(product.Ecosystem, product.Version, target.Constraints)
-				if err != nil {
-					return domain.MatchCandidate{}, false, fmt.Errorf("evaluate product %q against target %q: %w", product.ID, target.ID, err)
-				}
-				if versionStatus == domain.VersionNotAffected {
-					continue
-				}
-				candidate.Matches = append(candidate.Matches, domain.TargetMatch{
-					RepositoryItemID: product.ID,
-					AffectedTargetID: target.ID,
-					Reason:           reason,
-					VersionStatus:    versionStatus,
-					InstalledVersion: product.Version,
-				})
 			}
 		case domain.AffectedContainer:
+			decision.RepositoryItemsCompared = len(profile.Containers)
 			for _, container := range profile.Containers {
-				if container.Image == "" || container.Image != target.Product {
-					continue
+				if container.Image != "" && container.Image == target.Product {
+					if err := addMatch("container", container.ID, "container", container.Tag, domain.MatchContainerExact); err != nil {
+						return domain.MatchCandidate{}, Trace{}, false, err
+					}
 				}
-				versionStatus, err := m.evaluateVersion("container", container.Tag, target.Constraints)
-				if err != nil {
-					return domain.MatchCandidate{}, false, fmt.Errorf("evaluate container %q against target %q: %w", container.ID, target.ID, err)
-				}
-				if versionStatus == domain.VersionNotAffected {
-					continue
-				}
-				candidate.Matches = append(candidate.Matches, domain.TargetMatch{
-					RepositoryItemID: container.ID,
-					AffectedTargetID: target.ID,
-					Reason:           domain.MatchContainerExact,
-					VersionStatus:    versionStatus,
-					InstalledVersion: container.Tag,
-				})
 			}
 		case domain.AffectedInfrastructure:
+			decision.RepositoryItemsCompared = len(profile.Infrastructure)
 			for _, asset := range profile.Infrastructure {
-				if asset.Product == "" || asset.Product != target.Product {
-					continue
+				if asset.Product != "" && asset.Product == target.Product {
+					if err := addMatch("infrastructure asset", asset.ID, asset.Provider, asset.Version, domain.MatchInfrastructureExact); err != nil {
+						return domain.MatchCandidate{}, Trace{}, false, err
+					}
 				}
-				versionStatus, err := m.evaluateVersion(asset.Provider, asset.Version, target.Constraints)
-				if err != nil {
-					return domain.MatchCandidate{}, false, fmt.Errorf("evaluate infrastructure asset %q against target %q: %w", asset.ID, target.ID, err)
-				}
-				if versionStatus == domain.VersionNotAffected {
-					continue
-				}
-				candidate.Matches = append(candidate.Matches, domain.TargetMatch{
-					RepositoryItemID: asset.ID,
-					AffectedTargetID: target.ID,
-					Reason:           domain.MatchInfrastructureExact,
-					VersionStatus:    versionStatus,
-					InstalledVersion: asset.Version,
-				})
 			}
 		default:
-			return domain.MatchCandidate{}, false, fmt.Errorf("affected target %q has unsupported kind %q", target.ID, target.Kind)
+			return domain.MatchCandidate{}, Trace{}, false, fmt.Errorf("affected target %q has unsupported kind %q", target.ID, target.Kind)
 		}
+
+		switch {
+		case len(decision.Matches) > 0:
+			decision.Decision = "matched"
+		case decision.IdentityMatches > 0:
+			decision.Decision = "version_excluded"
+		default:
+			decision.Decision = "no_identity_match"
+		}
+		anyIdentityMatch = anyIdentityMatch || decision.IdentityMatches > 0
+		trace.Targets = append(trace.Targets, decision)
 	}
 
-	return candidate, len(candidate.Matches) > 0, nil
+	switch {
+	case len(vulnerability.Affected) == 0:
+		trace.Decision = "no_affected_targets"
+	case len(candidate.Matches) > 0:
+		trace.Decision = "matched"
+	case anyIdentityMatch:
+		trace.Decision = "version_excluded"
+	default:
+		trace.Decision = "no_identity_match"
+	}
+	return candidate, trace, len(candidate.Matches) > 0, nil
 }
 
 func (m *Matcher) evaluateVersion(ecosystem, installed string, constraints []domain.VersionConstraint) (domain.VersionStatus, error) {

@@ -8,7 +8,7 @@ fragment, err := staticprofile.Profile(root)
 `Components` (domain types), and `Warnings`. It does not invoke scripts, package
 managers, or network operations. No coordinator integration is included.
 `New().Profile(root)` is equivalent; `NewProfiler(Limits)` allows explicit
-positive resource budgets.
+resource budgets (`MaxFiles: 0` leaves entry counts unlimited).
 
 ## Coverage and semantics
 
@@ -48,10 +48,10 @@ remain distinct. All source paths are slash-separated and root-relative.
 
 ## Safety boundaries
 
-Defaults: 2 MiB per parsed file, 32 MiB total parsed bytes, 100,000 filesystem
-entries, and depth 64 (root is depth zero). Traversal reads directory entries
-incrementally, avoiding whole-directory allocation before checking budgets.
-Skipped directories count toward the entry budget but are not traversed.
+Defaults: 2 MiB per parsed file, 32 MiB total parsed bytes, and depth 64
+(root is depth zero). There is no default filesystem-entry cap. A positive
+`MaxFiles` optionally bounds entries, including skipped directories. Traversal
+reads directory entries incrementally, avoiding whole-directory allocation.
 `.git`, `node_modules`, `vendor`, descendant symlinks, and special files are
 skipped. A symlink root is rejected. Reads are bounded even if files grow.
 Unparsed lockfiles are not read. I/O and limit failures return an error and an

@@ -1,333 +1,344 @@
-# Local LLM vulnerability-feed MVP
+# ローカル LLM による脆弱性フィードの MVP
 
-See [language detection](language-detection.md) for the expanded language/DSL
-catalogue and its ambiguity rules. Detection is separate from dependency parsing
-and does not imply vulnerability-analysis support.
+拡張された言語・DSL の一覧と曖昧性の扱いについては、[言語検出](language-detection.md)を参照してください。
+検出は依存関係の解析とは別の機能であり、脆弱性分析への対応を意味するものではありません。
 
-## Scope
+## 対象範囲
 
-The MVP turns a public GitHub repository and the latest NVD publications (or an
-explicit publication window) into vulnerability feed results. It combines bounded
-dependency inventories with Go syntax observations, not full multi-language
-vulnerability or exploitability analysis:
+この MVP は、公開 GitHub リポジトリと NVD の最新公開情報（または明示的な公開期間）から
+脆弱性フィードの結果を生成します。対象範囲を限定した依存関係の一覧と Go の構文上の観測結果を
+組み合わせるものであり、複数言語にわたる完全な脆弱性分析や悪用可能性の分析ではありません。
 
 ```text
-public GitHub HTTPS URL
-  -> anonymous, shallow repository acquisition
-  -> immutable commit SHA
-  -> language detection, bounded multi-ecosystem declaration/lockfile profiling
-  -> bounded Go AST source observations and warnings
+公開 GitHub HTTPS URL
+  -> 認証なしでの浅いクローンによるリポジトリ取得
+  -> 不変のコミット SHA
+  -> 言語検出、複数エコシステムの宣言・ロックファイルの範囲を限定したプロファイリング
+  -> 範囲を限定した Go AST ソース観測と警告
   -> RepositoryProfile
 
-NVD CVE 2.0 publications at or before command start
-  -> FetchLatest (bounded multi-request retrieval, at most 200 unique CVEs)
-  -> NVD normalization
+コマンド開始時点以前の NVD CVE 2.0 公開情報
+  -> FetchLatest（複数リクエストによる取得に上限を設け、重複のない CVE を最大 200 件取得）
+  -> NVD の正規化
   -> NormalizedVulnerability
 
-RepositoryProfile + each NormalizedVulnerability
-  -> optional OSV pinned-package enrichment (external disclosure)
-  -> deterministic identity, local npm ranges, exact OSV version evidence
-  -> backend-built Evidence
-  -> local-LLM Screening
-  -> Deep Analysis only when Screening says related
-  -> Feed item/result with backend-owned applicability assessment
-  -> JSON on standard output
+RepositoryProfile + 各 NormalizedVulnerability
+  -> 任意の OSV による固定バージョンのパッケージ情報の補完（外部への開示）
+  -> 決定論的な識別、ローカルの npm バージョン範囲、OSV の完全一致バージョンの根拠
+  -> バックエンドが構築する Evidence
+  -> ローカル LLM によるスクリーニング
+  -> スクリーニングで関連ありと判定された場合のみ詳細分析
+  -> バックエンドが管理する該当性評価を含むフィード項目・結果
+  -> 標準出力への JSON 出力
 ```
 
-The backend, not the LLM, owns repository acquisition, parsing, identities,
-versions, candidate selection, evidence, control flow, and feed facts. Repository
-files and NVD text are treated as untrusted input.
+リポジトリの取得、解析、識別情報、バージョン、候補選定、根拠、制御フロー、フィードの事実情報を
+管理するのは LLM ではなくバックエンドです。リポジトリ内のファイルと NVD のテキストは、
+信頼できない入力として扱います。
 
-## Current architecture
+## 現在のアーキテクチャ
 
-### Public GitHub acquisition
+### 公開 GitHub リポジトリの取得
 
-`src/repository` accepts canonical public repository URLs of the form
-`https://github.com/owner/repository`. Acquisition is anonymous and HTTPS-only.
-It shallow-clones one branch without tags or submodules, disables credentials and
-Git hooks, does not execute repository code, and resolves the checkout to an
-immutable commit SHA. An optional branch or tag can be supplied as the ref; an
-empty ref uses the repository's default branch.
+`src/repository` は、`https://github.com/owner/repository` 形式の正規の公開リポジトリ URL を
+受け付けます。取得は認証なしで行い、HTTPS のみに対応します。
+タグやサブモジュールを含めずに単一のブランチを浅くクローンし、認証情報と Git フックを無効にします。
+リポジトリのコードは実行せず、チェックアウトを不変のコミット SHA に解決します。
+参照として任意のブランチまたはタグを指定できます。参照が空の場合は、リポジトリのデフォルトブランチを使用します。
 
-Private repositories, credentials, SSH URLs, non-GitHub hosts, submodules, and
-repository build/install commands are not supported.
+非公開リポジトリ、認証情報、SSH URL、GitHub 以外のホスト、サブモジュール、
+リポジトリのビルド・インストールコマンドには対応していません。
 
-### Repository profiling
+### リポジトリのプロファイリング
 
-`src/repository.Profile`, used by `cmd/mvp-run`, starts with `ProfileNPM`:
+`cmd/mvp-run` が使用する `src/repository.Profile` は、まず `ProfileNPM` で次を行います。
 
-- source-language detection by file extension;
-- npm `package.json` parsing;
-- npm `package-lock.json` v2 and v3 parsing, including locked direct and
-  transitive versions; and
-- a bounded npm-to-CPE product-candidate heuristic.
+- ファイル拡張子によるソース言語の検出。
+- npm の `package.json` の解析。
+- 固定された直接・推移的依存関係のバージョンを含む、npm の `package-lock.json` v2 および v3 の解析。
+- 範囲を限定した、npm から CPE の製品候補を導くヒューリスティック。
 
-The heuristic derives explicit product candidates from npm component names so
-NVD CPE product records can participate in deterministic matching. For an
-unscoped package, the package name is the product alias. For a scoped package
-such as `@vendor/product`, the scope is used as a vendor candidate and both the
-full package name and unscoped product name are aliases. This is candidate
-generation, not proof that every similarly named CPE describes the npm package.
-The later deterministic match and LLM Screening stages preserve that distinction.
+このヒューリスティックは、npm コンポーネント名から明示的な製品候補を導出し、
+NVD の CPE 製品レコードを決定論的な照合に利用できるようにします。
+スコープのないパッケージでは、パッケージ名を製品の別名とします。
+`@vendor/product` のようなスコープ付きパッケージでは、スコープをベンダー候補として使用し、
+完全なパッケージ名とスコープを除いた製品名の両方を別名とします。
+これは候補の生成であり、似た名前の CPE がすべてその npm パッケージを指すことの証明ではありません。
+後続の決定論的な照合と LLM によるスクリーニングでも、この区別を維持します。
 
-The coordinator then merges `src/ecosystem/staticprofile`,
-`src/ecosystem/lockprofile`, `src/ecosystem/structuredlock`,
-`src/ecosystem/extralock`, `src/ecosystem/manifestextra`, and
-`src/ecosystem/nativeprofile` inventories.
-These are **supported parser subsets, not complete dependency resolvers**:
-profiling does not run package managers, builds, or repository scripts, fetch
-parents, or resolve a complete dependency graph.
+続いて調整処理が、`src/ecosystem/staticprofile`、
+`src/ecosystem/lockprofile`、`src/ecosystem/structuredlock`、
+`src/ecosystem/extralock`、`src/ecosystem/manifestextra`、
+`src/ecosystem/nativeprofile` の一覧を統合します。
+これらは**対応する解析機能の部分集合であり、完全な依存関係リゾルバーではありません**。
+プロファイリングでは、パッケージマネージャー、ビルド、リポジトリのスクリプトを実行せず、
+親の取得や完全な依存関係グラフの解決も行いません。
 
-| Ecosystem / input | Supported subset | Important limits |
+| エコシステム / 入力 | 対応範囲 | 主な制限 |
 | --- | --- | --- |
-| npm: `package.json`, `package-lock.json` | Manifest declarations and v2/v3 locked direct/transitive versions. | Declarations are not proof of installed or deployed versions. |
-| pnpm: `pnpm-lock.yaml` | v6/v9 package records, scoped names and parenthesized peer contexts. | Importer/snapshot ranges are not installed versions; directness is not inferred. |
-| Yarn: `yarn.lock` | Classic v1 with explicit format marker; Berry metadata versions 4/5/6/8 with exact `npm:` resolutions. | Classic requires a public HTTPS npm/Yarn registry tarball matching name/version; not every Yarn protocol is supported. |
-| Go: `go.mod` | `require` declarations and direct/indirect markers. | `go.sum` is ignored; `replace`/`exclude` leave requirement versions unknown. No workspace, module graph, or build resolution. |
-| Python: `requirements.txt` | Names and a conservative subset of exact `==` pins. | No range, marker, URL, option, include, or dependency resolution. |
-| Python/Pipenv: `Pipfile.lock` | Exact `==` PEP 440 pins in `default`/`develop`, with runtime/development scope. | Requires unambiguous public PyPI source metadata; Git/path/editable and non-exact entries are omitted. Markers/extras and directness are not resolved. |
-| Python/Poetry: `poetry.lock` | Metadata lock versions 1.1/2.0/2.1; default PyPI when no source is declared, or explicit public PyPI source. | Conservative exact PEP 440 subset; no lock/manifest reconciliation or resolver. |
-| Python/uv: `uv.lock` | Version 1 with explicit public PyPI registry sources. | Conservative exact PEP 440 subset; non-registry sources are omitted. |
-| Python: `pyproject.toml` | PEP 621 dependencies/optional dependencies and Poetry dependencies, legacy dev dependencies, and named groups; supported exact pins retain versions. | Ranges/wildcards/compound constraints remain unknown; markers/extras are not evaluated. URL/file/VCS and Poetry custom-source declarations are skipped. No dynamic dependencies, PEP 735/PDM development groups, or build-system requirements. |
-| Python/PDM: `pdm.lock` | Lock versions 4.0–4.5, exact package records with explicit public PyPI index/source or qualifying files.pythonhosted.org URLs. | Filename/hash-only records do not prove PyPI origin; private/local/VCS evidence overrides public evidence. No hash verification or inferred directness. |
-| Java/Kotlin/Maven: `pom.xml` | Top-level direct dependencies with literal or bounded local-property versions and declared scopes. | Not an effective POM: no parent fetching, dependencyManagement/BOM, profile, plugin, module, or transitive resolution. Unresolved versions remain empty with warnings; unresolved coordinates and system-scoped local JARs are omitted. |
-| Java/Kotlin/Gradle: `gradle.lockfile` | Locked `group:artifact:version=configurations` records, one component per configuration. | Locked dependencies only: no build-script evaluation, dynamic versions, variants, plugins, or legacy per-configuration lockfile resolution. |
-| Rust: `Cargo.lock` | Versions 1–4 with explicit crates.io registry/index sources and exact SemVer. | No unversioned legacy format, Git/path dependencies, alternate registries, or resolver. |
-| Rust: `Cargo.toml` | Regular/dev/build/target-specific declarations and package aliases; only complete `=1.2.3`-style SemVer pins retain versions. | Bare versions are ranges, not pins. Workspace-inherited, Git/path, and custom-registry dependencies are skipped; patch/replace tables fail profiling. |
-| PHP: `composer.lock` | `packages`/`packages-dev`, vendor/name and numeric release versions, with scope. | Path distributions and dev branches omitted; custom repository provenance and directness unknown. Normal release source Git metadata alone does not exclude a package. |
-| Ruby: `Gemfile.lock` | Specs in verified public RubyGems `GEM` sections; `DEPENDENCIES` establishes directness. | GIT/PATH, private/mixed/missing remotes, and platform-qualified specs omitted. Nested requirements are not installed versions; groups/platform selection unknown. |
-| .NET: `packages.lock.json` | NuGet schemas 1/2, resolved Direct/Transitive/CentralTransitive entries, framework/runtime scope. | No project dependencies, requested-range resolution, framework selection, or graph evaluation. |
-| Swift: `Package.resolved` / `package.resolved` | Schemas 1/2/3 recognized; registry pins in 2/3 with scope.name identity and release version. | **Inventory-only, no OSV mapping.** Source-control pins (including schema 1), revisions, and branch-only pins are omitted with warnings. |
-| Dart/Pub: `pubspec.lock` | Exact hosted versions with a matching description name and explicit `https://pub.dev` URL; declared direct main/dev/transitive scope retained. | Private hosts, legacy string descriptions, SDK/path/Git entries are skipped; pub.dartlang.org is not assumed equivalent. |
-| Deno: `deno.lock` | JSON v2–v5 pinned npm records and v3–v5 JSR records, with nonempty integrity and supported registry layouts. | Specifiers/workspaces/remote hashes do not create components; alternate sources are skipped. Integrity is not verified, edges/directness are not inferred; **JSR is inventory-only**. |
-| .NET: `packages.config`, `project.assets.json` | Exact NuGet XML package records and schema-3 resolved JSON package libraries, respectively. | Includes transitive inventory without inferring directness or individual public-feed provenance; project libraries are excluded. `packages.config` is recorded as a manifest. |
-| R: `renv.lock` | Exact CRAN records with matching package identity, `Source: Repository`, and `Repository: CRAN`. | Other repositories and conflicting remote metadata are skipped. Labels do not authenticate download hosts; **CRAN is inventory-only**. |
-| Conan: `conan.lock` | v0.5 requirement lists and v0.4 graph node references with full name/version, optionally user/channel, revision, and timestamp. | Ranges, bare names, and local paths are skipped; no binary resolution. Complete references are preserved as source identities; **inventory-only**. |
-| vcpkg: `vcpkg.json` | Named string/object dependencies, including feature dependencies. | Versions remain unknown even with minimum constraints or overrides; no baseline/registry/overlay resolution or platform/feature evaluation. **Inventory-only**. |
-| CocoaPods: `Podfile.lock` | Resolved PODS specs with explicit public SPEC REPOS membership: trunk, cdn.cocoapods.org, or the CocoaPods/Specs.git GitHub URL. | Private/conflicting/missing provenance is excluded; external sources/checkouts exclude the root pod and all subspecs. Subspec names are retained, not collapsed to root pods. |
-| Julia: `Manifest.toml` | Legacy package arrays and format 2.0 deps arrays with UUID and version. | Path/repo-source entries and records without UUID/version are skipped. Registry provenance is not verified; **inventory-only** source identities. |
+| npm: `package.json`、`package-lock.json` | マニフェストの宣言と、v2/v3 で固定された直接・推移的依存関係のバージョン。 | 宣言は、インストール済みまたはデプロイ済みのバージョンの証明ではありません。 |
+| pnpm: `pnpm-lock.yaml` | v6/v9 のパッケージレコード、スコープ付きの名前、括弧付きのピアコンテキスト。 | インポーターやスナップショットの範囲はインストール済みバージョンではありません。直接依存かどうかは推定しません。未対応版（v5.3 など）は YAML 検証後、パス・バージョン・一覧の欠落を警告してそのファイルのみ除外します。 |
+| Yarn: `yarn.lock` | 明示的な形式マーカーを持つ Classic v1 と、完全一致の `npm:` 解決情報を持つ Berry メタデータバージョン 4/5/6/8。 | Classic では、名前とバージョンが一致する公開 HTTPS npm/Yarn レジストリの tarball が必要です。すべての Yarn プロトコルに対応しているわけではありません。 |
+| Go: `go.mod` | `require` 宣言と直接・間接依存のマーカー。 | `go.sum` は無視します。`replace`/`exclude` がある場合、要求バージョンは不明のままです。ワークスペース、モジュールグラフ、ビルドの解決は行いません。 |
+| Python: `requirements.txt` | 名前と、完全一致の `==` 固定指定の保守的な部分集合。 | 範囲、マーカー、URL、オプション、インクルード、依存関係の解決は行いません。 |
+| Python/Pipenv: `Pipfile.lock` | `default`/`develop` 内の完全一致の `==` PEP 440 固定指定と、実行時・開発用のスコープ。 | 曖昧さのない公開 PyPI のソースメタデータが必要です。Git/パス/編集可能形式と完全一致でないエントリーは除外します。マーカー、追加機能、直接依存かどうかは解決しません。 |
+| Python/Poetry: `poetry.lock` | メタデータのロックバージョン 1.1/2.0/2.1。ソース宣言がない場合はデフォルトの PyPI、または明示的な公開 PyPI ソース。 | 完全一致の PEP 440 の保守的な部分集合です。ロックとマニフェストの整合処理や依存関係の解決は行いません。 |
+| Python/uv: `uv.lock` | 明示的な公開 PyPI レジストリソースを持つバージョン 1。 | 完全一致の PEP 440 の保守的な部分集合です。レジストリ以外のソースは除外します。 |
+| Python: `pyproject.toml` | PEP 621 の依存関係・任意の依存関係と、Poetry の依存関係、従来の開発用依存関係、名前付きグループ。対応する完全一致の固定指定はバージョンを保持します。 | 範囲、ワイルドカード、複合制約は不明のままです。マーカーや追加機能は評価しません。URL/ファイル/VCS と Poetry のカスタムソース宣言はスキップします。動的な依存関係、PEP 735/PDM の開発用グループ、ビルドシステムの要件には対応していません。 |
+| Python/PDM: `pdm.lock` | ロックバージョン 4.0–4.5。明示的な公開 PyPI インデックス・ソース、または条件を満たす files.pythonhosted.org URL を持つ完全一致のパッケージレコード。 | ファイル名・ハッシュだけのレコードは PyPI 由来であることの証明になりません。非公開・ローカル・VCS の根拠を公開の根拠より優先します。ハッシュの検証や直接依存かどうかの推定は行いません。 |
+| Java/Kotlin/Maven: `pom.xml` | リテラルまたは範囲を限定したローカルプロパティのバージョンと、宣言されたスコープを持つ最上位の直接依存関係。 | 実効 POM ではありません。親の取得、dependencyManagement/BOM、プロファイル、プラグイン、モジュール、推移的依存関係の解決は行いません。未解決のバージョンは警告付きで空のままとし、未解決の座標とシステムスコープのローカル JAR は除外します。 |
+| Java/Kotlin/Gradle: `gradle.lockfile` | 固定された `group:artifact:version=configurations` レコード。構成ごとに 1 コンポーネント。 | 固定された依存関係のみです。ビルドスクリプトの評価、動的バージョン、バリアント、プラグイン、従来の構成別ロックファイルの解決は行いません。 |
+| Rust: `Cargo.lock` | 明示的な crates.io レジストリ・インデックスソースと完全一致の SemVer を持つバージョン 1–4。 | バージョンのない従来形式、Git/パス依存関係、代替レジストリ、依存関係の解決には対応していません。 |
+| Rust: `Cargo.toml` | 通常・開発用・ビルド用・ターゲット固有の宣言とパッケージの別名。完全な `=1.2.3` 形式の SemVer 固定指定のみバージョンを保持します。 | 単独のバージョン表記は固定指定ではなく範囲です。ワークスペースから継承した依存関係、Git/パス依存関係、カスタムレジストリの依存関係はスキップします。patch/replace がある場合は同じ解析ツリー内の Cargo マニフェスト由来の依存関係をすべて警告付きで除外し、他の解析を続けます。 |
+| PHP: `composer.lock` | `packages`/`packages-dev`、vendor/name、数値のリリースバージョンとスコープ。 | パスによる配布と開発ブランチは除外します。カスタムリポジトリの出所と直接依存かどうかは不明です。通常のリリースのソース Git メタデータだけではパッケージを除外しません。 |
+| Ruby: `Gemfile.lock` | 公開 RubyGems であると確認された `GEM` セクション内の仕様。`DEPENDENCIES` によって直接依存かどうかを確定します。 | GIT/PATH、非公開・混在・欠落したリモート、プラットフォーム修飾付きの仕様は除外します。入れ子の要件はインストール済みバージョンではありません。グループやプラットフォームの選択は不明です。 |
+| .NET: `packages.lock.json` | NuGet スキーマ 1/2、解決済みの Direct/Transitive/CentralTransitive エントリー、フレームワーク・ランタイムのスコープ。 | プロジェクト依存関係、要求範囲の解決、フレームワークの選択、グラフの評価には対応していません。 |
+| Swift: `Package.resolved` / `package.resolved` | スキーマ 1/2/3 を認識します。2/3 のレジストリ固定指定で scope.name 識別情報とリリースバージョンを扱います。 | **一覧作成のみで、OSV マッピングはありません。** ソース管理の固定指定（スキーマ 1 を含む）、リビジョン、ブランチのみの固定指定は警告付きで除外します。 |
+| Dart/Pub: `pubspec.lock` | 説明内の名前が一致し、明示的な `https://pub.dev` URL を持つ、ホストされた完全一致のバージョン。宣言された直接の主依存・開発用依存・推移的依存のスコープを保持します。 | 非公開ホスト、従来の文字列形式の説明、SDK/パス/Git エントリーはスキップします。pub.dartlang.org を同等とはみなしません。 |
+| Deno: `deno.lock` | 空でない integrity と対応するレジストリ構造を持つ、JSON v2–v5 の固定 npm レコードと v3–v5 の JSR レコード。 | 指定子・ワークスペース・リモートハッシュからはコンポーネントを作成しません。代替ソースはスキップします。完全性は検証せず、辺や直接依存かどうかは推定しません。**JSR は一覧作成のみです**。 |
+| .NET: `packages.config`、`project.assets.json` | それぞれ、完全一致の NuGet XML パッケージレコードと、スキーマ 3 の解決済み JSON パッケージライブラリ。 | 推移的依存関係の一覧を含みますが、直接依存かどうかや個々の公開フィード由来であることは推定しません。プロジェクトライブラリは除外します。`packages.config` はマニフェストとして記録します。 |
+| R: `renv.lock` | パッケージ識別情報が一致し、`Source: Repository` と `Repository: CRAN` を持つ完全一致の CRAN レコード。 | 他のリポジトリや矛盾するリモートメタデータはスキップします。ラベルはダウンロードホストを認証するものではありません。**CRAN は一覧作成のみです**。 |
+| Conan: `conan.lock` | v0.5 の要件リストと v0.4 のグラフノード参照。完全な名前・バージョンを持ち、任意でユーザー・チャネル、リビジョン、タイムスタンプを含みます。 | 範囲、名前のみの指定、ローカルパスはスキップします。バイナリの解決は行いません。完全な参照はソース識別情報として保持します。**一覧作成のみです**。 |
+| vcpkg: `vcpkg.json` | 機能の依存関係を含む、名前付きの文字列・オブジェクト形式の依存関係。 | 最小バージョン制約や上書きがあっても、バージョンは不明のままです。ベースライン・レジストリ・オーバーレイの解決や、プラットフォーム・機能の評価は行いません。**一覧作成のみです**。 |
+| CocoaPods: `Podfile.lock` | 公開 SPEC REPOS（trunk、cdn.cocoapods.org、または CocoaPods/Specs.git の GitHub URL）への所属が明示された解決済み PODS 仕様。 | 非公開・矛盾・欠落した出所は除外します。外部ソース・チェックアウトがある場合はルート pod とすべての subspec を除外します。subspec 名は保持し、ルート pod にまとめません。 |
+| Julia: `Manifest.toml` | UUID とバージョンを持つ、従来のパッケージ配列と形式 2.0 の deps 配列。 | パス・リポジトリソースのエントリーと UUID/バージョンのないレコードはスキップします。レジストリの出所は検証しません。**一覧作成専用**のソース識別情報です。 |
 
-Structured locks reject unsupported Git/path/workspace/patch/alternate-registry
-identities with source-qualified warnings. Explicit pnpm tarball and Yarn classic
-resolved URLs must match the locked npm name and version. Pipenv requires a
-uniquely selected public PyPI source (or an entirely public source list when no
-index is selected); RubyGems requires every remote in a GEM block to be public
-RubyGems. These are static source declarations, not verified artifact provenance.
-Malformed supported inputs and resource-limit failures fail profiling rather than
-return a successful partial inventory. See the
-[lockprofile README](../src/ecosystem/lockprofile/README.md) and
-[structuredlock README](../src/ecosystem/structuredlock/README.md),
-[extralock README](../src/ecosystem/extralock/README.md),
-[manifestextra README](../src/ecosystem/manifestextra/README.md), and
-[nativeprofile README](../src/ecosystem/nativeprofile/README.md) for exact
-format, provenance, traversal, and resource boundaries.
+構造化ロックファイルでは、未対応の Git/パス/ワークスペース/patch/代替レジストリの識別情報を、
+ソースを明示した警告とともに拒否します。pnpm の明示的な tarball URL と Yarn Classic の
+resolved URL は、固定された npm の名前とバージョンに一致する必要があります。
+Pipenv では、一意に選択された公開 PyPI ソース（インデックスが選択されていない場合は、
+すべてが公開であるソースリスト）が必要です。RubyGems では、GEM ブロック内のすべてのリモートが
+公開 RubyGems である必要があります。これらは静的なソース宣言であり、検証済みの成果物の出所ではありません。
+対応する入力の形式不正やリソース制限による失敗が発生すると、部分的な一覧を成功として返すのではなく、
+プロファイリングを失敗させます。形式、出所、走査、リソースの正確な境界については、
+[lockprofile README](../src/ecosystem/lockprofile/README.md)、
+[structuredlock README](../src/ecosystem/structuredlock/README.md)、
+[extralock README](../src/ecosystem/extralock/README.md)、
+[manifestextra README](../src/ecosystem/manifestextra/README.md)、
+[nativeprofile README](../src/ecosystem/nativeprofile/README.md) を参照してください。
 
-For `manifestextra`, detected Poetry/PDM/uv source configuration anywhere in the
-scanned tree disables Python public-package attribution throughout that scan;
-`.cargo/config` or `.cargo/config.toml` similarly disables default Cargo registry
-attribution. Otherwise manifest registry declarations use public defaults, without
-consulting ambient configuration outside the root. This is conservative inventory,
-not proof of an external installation's source or an environment-specific plan.
+`manifestextra` では、走査対象ツリーのどこかで Poetry/PDM/uv のソース設定が検出されると、
+その走査全体で Python パッケージを公開パッケージとして帰属させる処理を無効にします。
+同様に、`.cargo/config` または `.cargo/config.toml` があると、デフォルトの Cargo レジストリへの
+帰属を無効にします。それ以外の場合、マニフェストのレジストリ宣言には公開のデフォルト値を使用し、
+ルート外の環境設定は参照しません。これは保守的な一覧作成であり、外部のインストールのソースや
+環境固有の計画の証明ではありません。
 
-`src/repository/coverage.go` adds path-qualified warnings for selected unsupported
-filenames, such as Bun, Mix/Rebar, SBT, Conda, Gradle build scripts, .NET project
-files, `pubspec.yaml`, `deno.json`/`deno.jsonc`, `Podfile`, Julia `Project.toml`,
-`conanfile.*`, and `vcpkg-configuration.json`. It does not read their contents or
-parse their dependencies; supported companion files are assessed separately.
-This bounded, enumerated detector is **not exhaustive format coverage**. No warning
-does not mean that every dependency input was recognized or analyzed.
+`src/repository/coverage.go` は、選定された未対応のファイル名に対してパス付きの警告を追加します。
+対象には Bun、Mix/Rebar、SBT、Conda、Gradle ビルドスクリプト、.NET プロジェクトファイル、
+`pubspec.yaml`、`deno.json`/`deno.jsonc`、`Podfile`、Julia の `Project.toml`、
+`conanfile.*`、`vcpkg-configuration.json` などが含まれます。これらの内容の読み取りや
+依存関係の解析は行いません。対応する関連ファイルは別途評価します。
+この検出器は列挙された範囲に限定されており、**すべての形式を網羅しているわけではありません**。
+警告がないことは、すべての依存関係入力が認識・分析されたことを意味しません。
 
-`src/repository/normalize.go` preserves per-file component provenance, normalizes
-`PyPI` to `pypi`, and forms Maven `group:artifact` and Packagist `vendor/name`
-component names from namespaces. Python names normalize case and runs of `-_.`;
-NuGet and Swift identities are lowercase. Ecosystem usage paths are merged,
-sorted, and deduplicated. Parser PURLs may be versionless (`lockprofile`, `extralock`, `manifestextra`,
-`nativeprofile`) or versioned (`structuredlock`); `Component.Version` carries
-known versions separately and remains empty when unresolved.
-Unknown directness is not proof of transitivity. npm product candidates are
-rebuilt from all normalized npm components, including pnpm/Yarn and Deno npm locks; non-npm
-package-to-CPE mapping is not implemented.
+`src/repository/normalize.go` はファイルごとのコンポーネントの出所を保持し、
+`PyPI` を `pypi` に正規化し、名前空間から Maven の `group:artifact` と Packagist の
+`vendor/name` のコンポーネント名を構成します。Python の名前は大文字・小文字と連続する `-_.` を
+正規化します。NuGet と Swift の識別情報は小文字です。エコシステムの使用箇所のパスは統合、
+ソート、重複排除します。パーサーの PURL はバージョンなし（`lockprofile`、`extralock`、
+`manifestextra`、`nativeprofile`）またはバージョン付き（`structuredlock`）の場合があります。
+`Component.Version` は既知のバージョンを別途保持し、未解決の場合は空のままです。
+直接依存かどうかが不明であることは、推移的依存であることの証明にはなりません。
+npm の製品候補は、pnpm/Yarn および Deno の npm ロックを含む、正規化済みのすべての npm
+コンポーネントから再構築します。npm 以外のパッケージから CPE へのマッピングは未実装です。
 
-`src/sourceinspect` adds bounded Go AST observations: imports, direct imported
-selector calls, and literal `net/http.HandleFunc` route registrations, with
-relative file paths and line spans. There is no type checking or dependency
-loading. Unaliased imports resolve only through a fixed standard-library
-allowlist; other packages require explicit aliases. Function aliases, methods,
-interfaces, reflection, and dynamic dispatch are not resolved. Inspection does
-not select a build configuration and includes tests, generated code, and files
-excluded by build constraints.
+`src/sourceinspect` は、範囲を限定した Go AST の観測結果を追加します。対象はインポート、
+インポートしたパッケージのセレクターを直接使う呼び出し、リテラルによる `net/http.HandleFunc` の
+ルート登録で、相対ファイルパスと行範囲を含みます。型検査や依存関係の読み込みは行いません。
+別名のないインポートは、固定の標準ライブラリ許可リストによってのみ解決します。
+他のパッケージには明示的な別名が必要です。関数の別名、メソッド、インターフェース、
+リフレクション、動的ディスパッチは解決しません。検査ではビルド構成を選択せず、
+テスト、生成コード、ビルド制約によって除外されるファイルも含めます。
 
-`RepositoryProfile.source_observations` carries these syntax findings;
-`warnings` carries parser warnings and inspection limitations. Resource limits
-and inspection errors fail profiling rather than establish absence. Declarations
-are not a deployed inventory, and source observations are not proof of CVE
-feature usage, execution, reachability, or attack conditions. Non-npm local range
-comparison is not implemented; exact OSV provider evidence is separate (below).
-Extension-based language detection now also recognizes Dart, Elixir, Erlang,
-Scala, Clojure/ClojureScript, Haskell, OCaml, R, Julia, Perl, and Lua. It counts
-recognized files, not analyzed source semantics or dependency coverage. Source
-inspection remains Go-only; expanded language detection does not implement
-other-language source analysis or complete Levels 3–5, which remain `unknown`.
+`RepositoryProfile.source_observations` はこれらの構文上の検出結果を保持し、
+`warnings` はパーサーの警告と検査の制限を保持します。リソース制限や検査エラーが発生した場合、
+不在と判断するのではなくプロファイリングを失敗させます。宣言はデプロイ済みの一覧ではなく、
+ソースの観測結果は CVE に関わる機能の使用、実行、到達可能性、攻撃条件の証明ではありません。
+npm 以外のローカルな範囲比較は未実装です。OSV プロバイダーによる完全一致の根拠は別扱いです（後述）。
+拡張子に基づく言語検出は、現在 Dart、Elixir、Erlang、Scala、Clojure/ClojureScript、
+Haskell、OCaml、R、Julia、Perl、Lua も認識します。数えるのは認識されたファイルであり、
+ソースの意味の分析や依存関係の網羅性ではありません。ソース検査は引き続き Go のみです。
+言語検出の拡張によって他の言語のソース分析やレベル 3–5 が完成したわけではなく、
+これらは引き続き `unknown` です。
 
-### NVD client and normalization
+### NVD クライアントと正規化
 
-`src/nvd` is a real client for the NVD CVE 2.0 HTTPS API. It supports publication
-and/or modification time windows, an optional NVD API key, bounded responses,
-and a configurable endpoint for testing. A request defaults to 200 results and
-cannot request or accept more than 200 vulnerabilities.
+`src/nvd` は、NVD CVE 2.0 HTTPS API の実クライアントです。
+公開期間と変更期間の一方または両方、任意の NVD API キー、上限付きのレスポンス、
+テスト用に設定可能なエンドポイントに対応しています。リクエストのデフォルト件数は 200 件で、
+200 件を超える脆弱性を要求したり受け入れたりすることはできません。
 
-`cmd/mvp-run` uses `FetchLatest` to select up to 200 unique CVEs, newest
-publication first, at a cutoff captured at command start (before cloning).
-Without publication flags, it searches backward in seven-day windows and seeks
-to the tail of NVD's ascending publication pages; it is neither a single-page
-request nor a fixed previous-24-hours query. Boundary CVEs are deduplicated.
-The default request budget is 128, including count probes. Exhausting that
-budget or encountering inconsistent pages returns an incomplete-retrieval error;
-the CLI does not analyze that partial set as a successful latest result. An
-exhausted explicit range may successfully yield fewer than 200 records.
+`cmd/mvp-run` の通常実行は、[PR #18](https://github.com/K3NLatte/vulns-news/pull/18)
+（参照コミット `9ab2de0`）を基にした `Client.Fetch(ctx, count)` を使用します。
+公開期間のフィルターを付けず、1 件を要求する問い合わせで総件数だけを確認してから、総件数と要求件数から
+逆算した末尾位置を取得します。正規化済みの `[]nvd.NormalizedVulnerability` を最新順で返し、
+これは既存の `domain.NormalizedVulnerability` の型エイリアスなので、照合・Screening・Deep Analysis・Feed に直接渡せます。
+要求件数は 1–200 件（CLI は 200 件）、リクエスト上限は 128 回です。重複は除去し、必要な場合はさらに前のページを読みます。
+通常実行はクローン前の時刻による公開日時の締切を設けません。NVD 全体の検索結果の末尾を対象とします。
 
-Requests are paced at six seconds without an API key or 650 ms with one. HTTP
-errors, including throttling, are surfaced rather than retried. The cutoff
-freezes publication time, not NVD database state: concurrent edits/backfills
-cannot all be detected because NVD supplies no snapshot token.
+公開期間を指定した場合は `FetchNormalizedLatest` を使い、既存の `FetchLatest` の期間指定と
+コマンド開始時刻による締切を維持します。この経路は 7 日区間を後ろ向きに検索し、200 件刻みのページを取得します。
+明示的な範囲を最後まで検索した場合は、200 件未満でも正常な結果となることがあります。
+通常経路の初回問い合わせは件数確認専用です。HTTP/JSON と総件数は確認しますが、CVE 本文の件数・日時・正規化は検査せず、分析にも使いません。総件数が1件の場合も実データは別途取得します。
+両経路とも実データのページ情報・取得件数・公開順序・正規化の異常で停止し、不完全な結果を分析しません。
+取得失敗時は JSON 出力前に終了します。診断エラーには要求値と応答値を含め、API キーは出力しません。
 
-Separately, `src/workflow.ProcessRepository` provides the registration-triggered
-ingestion core: given a repository registration timestamp, it queries both publication
-and modification windows from that timestamp through the run time, requests
-pages of at most 200 records until each window is exhausted, and deduplicates
-CVE IDs before analysis. NVD records are normalized into CVE metadata, English
-description, preferred CVSS data, weaknesses, references, CPE product targets,
-and CPE version constraints. The normalizer does not invent package-manager
-PURLs from CPE data.
+リクエスト間隔は、API キーがない場合は 6 秒、ある場合は 650 ms です。
+レート制限を含む HTTP エラーは再試行せず、そのまま報告します。
+期間指定時の締切によって固定するのは公開時刻であり、NVD データベースの状態ではありません。
+NVD はスナップショットトークンを提供しないため、並行する編集や過去分の追加をすべて検出することはできません。
 
-The workflow is not yet wired to repository registration HTTP handlers and does
-not persist results or a cursor. A caller must invoke it again to fetch later
-updates; no recurring scheduler is implemented.
+別途、`src/workflow.ProcessRepository` は登録を契機とする取り込み処理の中核を提供します。
+リポジトリの登録タイムスタンプを受け取り、その時刻から実行時刻までの公開期間と変更期間の両方を問い合わせ、
+各期間の全件を取得し終えるまで最大 200 件ずつのページを要求して、分析前に CVE ID を重複排除します。
+NVD レコードは、CVE メタデータ、英語の説明、優先される CVSS データ、弱点、参照、
+CPE 製品ターゲット、CPE バージョン制約に正規化されます。
+正規化処理は、CPE データからパッケージマネージャーの PURL を作り出しません。
+PR #18 に合わせて CVSS 4.0 → 3.1 → 3.0 → 2.0 の優先順位、スコアを持つ Primary の優先、
+欠損スコアと明示的な 0 の区別、英語がない場合の説明文フォールバック、参照元 `source` を扱います。
+`affected[].affectedData` の製品・バージョン・defaultStatus を取り込み、識別可能な affectedData がなければ
+既存の CPE configurations にフォールバックします。明示的な unaffected 情報を CPE の影響あり情報で上書きしません。packageName だけからエコシステムは推測しません。
+`affectedData` のバージョンスキームや複雑な AND・否定・ネスト条件は `unknown` とし、
+単純な非否定 CPE 条件だけ既存の比較を維持します。製品候補は環境全体の適用条件の証明ではありません。
+ターゲット ID は内容ベースのハッシュへ変わるため、以前のプロファイルとの保存済み照合結果は再生成が必要です。
 
-### Deterministic matching and version evidence
+キーなしの実 API 取得だけを確認する場合（外部通信あり、通常のテストではスキップ）:
 
-`src/matcher` creates a candidate only from exact normalized identities: exact
-PURL, ecosystem/package, CPE, vendor/product, explicit product alias, container,
-or infrastructure identity. Fuzzy names do not create candidates.
+```sh
+NVD_LIVE_TEST=1 NVD_LIVE_COUNT=200 go test -v -count=1 ./src/nvd -run '^TestFetchLive$'
+```
 
-`cmd/mvp-run` uses `src/ecosystem/versions.New()`. For local constraints it
-delegates to `src/ecosystem/npm.VersionEvaluator`, which compares npm semantic
-versions with normalized constraints. Non-npm local range comparison remains
-unsupported. Proven-unaffected matches are removed before any LLM call.
+このテストは環境変数の API キーを読みません。通常の CLI ではキーは任意で、
+`NVD_API_KEY` または `-nvd-api-key` を設定した場合のみ送信します。
+`NVD API key: configured` は設定済みの表示であり、キーの有効性の検証結果ではありません。
 
-For provider constraints with scheme `osv`, a supported pinned installed version
-that is byte-identical to the queried version, with no range bounds, is
-`affected`—including supported non-npm ecosystems. A different version remains
-`unknown`, not `not_affected`: provider query results are positive exact-version
-evidence, not exhaustive ranges. Missing, unsupported, or unparseable version
-information remains `unknown`; the LLM cannot promote it to an affected fact.
+このワークフローは、まだリポジトリ登録の HTTP ハンドラーには接続されておらず、
+結果やカーソルを永続化しません。後続の更新を取得するには、呼び出し元が再度呼び出す必要があります。
+定期実行スケジューラーは未実装です。
 
-### Evidence, local LLM, pipeline, and feed
+### 決定論的な照合とバージョンの根拠
 
-`src/evidence` builds immutable Evidence from backend facts: one NVD citation and
-one repository citation per deterministic match. The LLM cannot create Evidence
-IDs or add unmatched repository items.
+`src/matcher` は、正規化済み識別情報の完全一致からのみ候補を作成します。
+対象は PURL、エコシステム・パッケージ、CPE、ベンダー・製品、明示的な製品の別名、
+コンテナー、インフラストラクチャーの識別情報です。曖昧な名前の一致からは候補を作成しません。
 
-`src/processor` sends a typed candidate and its Evidence to Ollama. Screening
-runs first. `src/pipeline` then applies the result:
+`cmd/mvp-run` は `src/ecosystem/versions.New()` を使用します。
+ローカルの制約については、npm のセマンティックバージョンを正規化済み制約と比較する
+`src/ecosystem/npm.VersionEvaluator` に委譲します。
+npm 以外のローカルな範囲比較には引き続き対応していません。
+影響を受けないことが証明された一致は、LLM を呼び出す前に除去します。
 
-- `unrelated`: exclude it and do not create a feed item;
-- `possibly_related` or `unknown`: create a screening-only feed item for review;
-- `related`: run Deep Analysis, then create the analyzed feed item.
+スキームが `osv` のプロバイダー制約では、対応する固定済みのインストールバージョンが
+問い合わせたバージョンとバイト単位で同一であり、範囲の上下限がなければ `affected` となります。
+これは対応する npm 以外のエコシステムも含みます。異なるバージョンは `not_affected` ではなく
+`unknown` のままです。プロバイダーのクエリ結果は、特定バージョンが影響を受けるという根拠であり、
+網羅的な範囲ではありません。バージョン情報が欠落している、未対応である、または解析できない場合は
+`unknown` のままであり、LLM が影響ありという事実に格上げすることはできません。
 
-Deep Analysis supplies a supported summary, repository-impact explanation,
-missing information, and recommended actions. It does not determine package
-identity, version status, reachability, or a backend risk score. `src/feed` keeps
-these generated interpretations separate from backend-owned CVE, repository,
-match, version, severity, and CVSS facts.
+### 根拠、ローカル LLM、パイプライン、フィード
 
-### Backend applicability assessment (Levels 1–5)
+`src/evidence` は、バックエンドの事実情報から不変の Evidence を構築します。
+決定論的な一致ごとに、NVD の引用元とリポジトリの引用元を 1 つずつ含めます。
+LLM は Evidence ID を作成したり、一致していないリポジトリ項目を追加したりできません。
 
-`src/assessment.Assess` builds a deterministic, candidate-scoped report.
-`src/feed` includes it as `applicability` in both screening-only and analyzed
-items. `src/processor` also includes it in prompt material alongside repository
-warnings and source observations; LLM prose cannot promote its statuses.
+`src/processor` は、型付けされた候補とその Evidence を Ollama に送信します。
+最初にスクリーニングを実行し、その後 `src/pipeline` が結果を適用します。
 
-| Level | Current implementation | Boundary |
+- `unrelated`: 除外し、フィード項目を作成しません。
+- `possibly_related` または `unknown`: レビュー用にスクリーニングのみのフィード項目を作成します。
+- `related`: 詳細分析を実行してから、分析済みのフィード項目を作成します。
+
+詳細分析は、根拠に裏付けられた要約、リポジトリへの影響の説明、不足情報、推奨される対応を提供します。
+パッケージの識別情報、バージョンの状態、到達可能性、バックエンドのリスクスコアを決定するものではありません。
+`src/feed` は、これらの生成された解釈を、バックエンドが管理する CVE、リポジトリ、
+一致、バージョン、深刻度、CVSS の事実情報と分離して保持します。
+
+### バックエンドによる該当性評価（レベル 1–5）
+
+`src/assessment.Assess` は、候補単位の決定論的なレポートを構築します。
+`src/feed` は、スクリーニングのみの項目と分析済み項目の両方に、これを `applicability` として含めます。
+`src/processor` も、リポジトリの警告やソースの観測結果とともにプロンプトの材料に含めます。
+LLM の文章によって、その状態を格上げすることはできません。
+
+| レベル | 現在の実装 | 境界 |
 | --- | --- | --- |
-| 1: Package presence | Checks exact component package/PURL identity and validates snapshot/match references. | Product aliases and CPE candidates do not prove package identity; this is not a deployed inventory. |
-| 2: Affected version | Preserves local npm evaluation and exact OSV queried-version evidence, including supported non-npm ecosystems, with per-match sources and identity conditions. | Non-npm local range comparison remains unsupported. A version result conditional on package identity does not confirm the same product. |
-| 3: Vulnerable feature usage | Reports `unknown` with missing reasons. | Go syntax observations do not establish use of a CVE-specific vulnerable feature. |
-| 4: Code reachability | Reports `unknown` with missing reasons. | No call graph or entry-point-to-vulnerable-code path analysis. |
-| 5: Attack conditions | Reports `unknown` with missing reasons. | No proof of runtime configuration, exposure, or attacker prerequisites. |
+| 1: パッケージの存在 | コンポーネントのパッケージ・PURL 識別情報の完全一致を確認し、スナップショット・一致への参照を検証します。 | 製品の別名や CPE 候補はパッケージの同一性を証明しません。これはデプロイ済みの一覧ではありません。 |
+| 2: 影響を受けるバージョン | 対応する npm 以外のエコシステムも含め、ローカル npm 評価と OSV に問い合わせたバージョンの完全一致の根拠を、一致ごとのソースと識別条件とともに保持します。 | npm 以外のローカルな範囲比較には引き続き対応していません。パッケージの同一性を条件とするバージョン結果は、同じ製品であることを確認するものではありません。 |
+| 3: 脆弱な機能の使用 | 不足理由とともに `unknown` を報告します。 | Go の構文上の観測結果では、CVE 固有の脆弱な機能の使用を確定できません。 |
+| 4: コードの到達可能性 | 不足理由とともに `unknown` を報告します。 | コールグラフや、エントリーポイントから脆弱なコードへの経路の分析は行いません。 |
+| 5: 攻撃条件 | 不足理由とともに `unknown` を報告します。 | 実行時設定、外部への公開状態、攻撃者の前提条件の証明は行いません。 |
 
-The report preserves individual matches and does not invent Evidence IDs or an
-overall risk/exploitability score. `unknown` and `not_found` do not mean safe;
-`not_affected` is a bounded version result, not an exploitability verdict.
-Prior conceptual Level examples were design illustrations, not descriptions of
-implemented feature-use, call-graph, or attack-condition analysis. Adding these
-report fields and prompt guidance does not complete Levels 3–5.
+レポートは個々の一致を保持し、Evidence ID や総合的なリスク・悪用可能性スコアを作り出しません。
+`unknown` と `not_found` は安全を意味しません。
+`not_affected` は範囲を限定したバージョンの結果であり、悪用可能性の判定ではありません。
+以前の概念的なレベルの例は設計上の説明であり、実装済みの機能使用、コールグラフ、
+攻撃条件の分析を説明したものではありません。
+これらのレポートフィールドとプロンプトの指針を追加しても、レベル 3–5 が完成するわけではありません。
 
-### Optional OSV enrichment
+### 任意の OSV による情報補完
 
-`cmd/mvp-run -osv` opts in to `src/osv` package queries to
-`https://api.osv.dev`. It is disabled by default. Supported dependency ecosystems,
-names, and pinned versions are sent externally; repository identity, file paths,
-source, and credentials are not sent to OSV. The CLI prints the disclosure to
-standard error. This is an explicit disclosure of dependency metadata to a
-third-party service, not part of offline profiling.
+`cmd/mvp-run -osv` は、`src/osv` による `https://api.osv.dev` へのパッケージクエリを有効にします。
+デフォルトでは無効です。対応する依存関係のエコシステム、名前、固定バージョンを外部に送信します。
+リポジトリの識別情報、ファイルパス、ソース、認証情報は OSV に送信しません。
+CLI はこの開示内容を標準エラー出力に表示します。
+これは依存関係メタデータの第三者サービスへの明示的な開示であり、オフラインのプロファイリングの一部ではありません。
 
-| Profile ecosystem | OSV ecosystem / package identity |
+| プロファイルのエコシステム | OSV のエコシステム / パッケージ識別情報 |
 | --- | --- |
-| `npm` (npm/pnpm/Yarn/Deno npm records) | `npm`, including full scoped names |
-| `Go` / `go` | `Go`, module path |
-| `pypi` / `PyPI` | `PyPI`, normalized package name |
-| `maven` / `Maven` | `Maven`, `group:artifact` |
-| `crates.io` | `crates.io`, crate name |
-| `packagist` / `Packagist` | `Packagist`, `vendor/name` |
-| `gem` / `RubyGems` | `RubyGems`, gem name |
-| `nuget` / `NuGet` | `NuGet`, package name (lowercase in the profile) |
-| `Pub` | `Pub`, package name |
-| `CocoaPods` | `CocoaPods`, retained pod/subspec name |
+| `npm`（npm/pnpm/Yarn/Deno の npm レコード） | `npm`、スコープを含む完全な名前に対応 |
+| `Go` / `go` | `Go`、モジュールパス |
+| `pypi` / `PyPI` | `PyPI`、正規化されたパッケージ名 |
+| `maven` / `Maven` | `Maven`、`group:artifact` |
+| `crates.io` | `crates.io`、クレート名 |
+| `packagist` / `Packagist` | `Packagist`、`vendor/name` |
+| `gem` / `RubyGems` | `RubyGems`、gem 名 |
+| `nuget` / `NuGet` | `NuGet`、パッケージ名（プロファイルでは小文字） |
+| `Pub` | `Pub`、パッケージ名 |
+| `CocoaPods` | `CocoaPods`、保持された pod/subspec 名 |
 
-Swift, CRAN, JSR, Conan, vcpkg, and Julia have no OSV mapping and remain
-inventory-only. In particular, Deno npm records use the npm mapping, but JSR
-records do not. Mapping an ecosystem does not make every declaration queryable:
-`versions.IsPinned` accepts conservative concrete-version subsets, never resolves
-ranges, and retains version spelling for queries and exact evidence matching.
-Pub accepts complete SemVer without a leading `v`; CocoaPods additionally accepts
-numeric versions with other segment counts, also without a leading `v`.
-These mappings enable bounded exact-version queries, not full advisory coverage.
+Swift、CRAN、JSR、Conan、vcpkg、Julia には OSV マッピングがなく、一覧作成のみです。
+特に Deno の npm レコードは npm マッピングを使用しますが、JSR レコードは使用しません。
+エコシステムをマッピングしても、すべての宣言を問い合わせられるわけではありません。
+`versions.IsPinned` は具体的なバージョンの保守的な部分集合を受け入れ、範囲の解決は一切行わず、
+クエリと根拠の完全一致照合のためにバージョンの表記を保持します。
+Pub は先頭に `v` のない完全な SemVer を受け入れます。CocoaPods はそれに加え、
+同じく先頭に `v` のない、区切り要素の数が異なる数値バージョンも受け入れます。
+これらのマッピングが可能にするのは、範囲を限定した完全一致バージョンのクエリであり、
+アドバイザリーの完全な網羅ではありません。
 
-One client/cache is shared across CVEs for the run: at most 100 unique pinned
-package queries and 8 MiB of cached response bodies. Unsupported/unresolved
-versions are skipped, not guessed. Exceeding limits is an error, not silent
-truncation to the first 100 packages. Non-context failures are cached for the
-run; cancellation is not. There is no persistent cache. Each enrichment also has
-a 30-second deadline, a 2 MiB response limit, and a 1,000-result-entry limit;
-paginated OSV responses are rejected rather than partially accepted.
+実行中は、CVE 間で 1 つのクライアント・キャッシュを共有します。
+重複のない固定バージョンのパッケージクエリは最大 100 件、キャッシュするレスポンス本文は最大 8 MiB です。
+未対応・未解決のバージョンは推測せずスキップします。制限超過はエラーとし、
+先頭の 100 パッケージに黙って切り詰めることはありません。
+コンテキストに起因しない失敗は実行中キャッシュしますが、キャンセルはキャッシュしません。
+永続キャッシュはありません。各補完処理にも 30 秒の期限、2 MiB のレスポンス上限、
+1,000 件の結果エントリー上限があります。ページ分割された OSV レスポンスは部分的に受け入れず拒否します。
 
-Only exact CVE ID/alias links add package targets. `osv:` target IDs,
-`osv_match` references, and OSV advisory citations keep provenance separate from
-NVD. Matches apply only to the queried version: they are not inferred NVD version
-ranges or exploitability proof. Exact supported queried versions can now be
-`affected` for non-npm packages too; other versions and non-npm local ranges
-remain `unknown`.
-On OSV failure the CLI records an `osv` error, skips analysis of that CVE,
-continues processing, writes the result JSON, and exits unsuccessfully rather
-than silently falling back to unenriched analysis.
+CVE ID・別名の完全一致による関連付けのみがパッケージターゲットを追加します。
+`osv:` ターゲット ID、`osv_match` 参照、OSV アドバイザリーの引用元によって、出所を NVD と分離します。
+一致が適用されるのは問い合わせたバージョンのみです。NVD のバージョン範囲を推定したものでも、
+悪用可能性の証明でもありません。現在は npm 以外のパッケージでも、対応する問い合わせ済みバージョンの
+完全一致を `affected` と判定できます。他のバージョンと npm 以外のローカルな範囲は `unknown` のままです。
+OSV が失敗した場合、CLI は `osv` エラーを記録し、その CVE の分析をスキップして処理を続行し、
+結果の JSON を出力したうえで失敗として終了します。情報補完なしの分析に黙ってフォールバックすることはありません。
 
-## Run mock input with `cmd/llm-eval`
+## `cmd/llm-eval` によるモック入力の実行
 
-`cmd/llm-eval` reads an already normalized mock `RepositoryProfile`,
-`NormalizedVulnerability`, and Evidence fixture. It performs deterministic
-matching, calls a real Ollama instance for Screening and conditional Deep
-Analysis, builds the pipeline/feed result, and emits indented JSON to standard
-output. It does not access GitHub or NVD and does not use SQLite.
+`cmd/llm-eval` は、正規化済みのモックの `RepositoryProfile`、
+`NormalizedVulnerability`、Evidence のフィクスチャを読み取ります。
+決定論的な照合を行い、実際の Ollama インスタンスを呼び出してスクリーニングと条件付きの詳細分析を実行し、
+パイプライン・フィードの結果を構築して、インデント付きの JSON を標準出力に出力します。
+GitHub や NVD にはアクセスせず、SQLite も使用しません。
 
-Prepare Ollama:
+Ollama を準備します。
 
 ```sh
 ollama pull qwen3:8b
 ollama serve
 ```
 
-Run the default fixture from the repository root:
+リポジトリのルートからデフォルトのフィクスチャを実行します。
 
 ```sh
 OLLAMA_MODEL=qwen3:8b \
@@ -335,7 +346,7 @@ OLLAMA_BASE_URL=http://127.0.0.1:11434 \
 go run ./cmd/llm-eval
 ```
 
-Or pass all options explicitly:
+または、すべてのオプションを明示的に渡します。
 
 ```sh
 go run ./cmd/llm-eval \
@@ -345,26 +356,25 @@ go run ./cmd/llm-eval \
   -timeout 10m
 ```
 
-Flags:
+フラグ:
 
-- `-input`: normalized mock input JSON; defaults to
-  `testdata/scenarios/npm-affected-dependency/input.json`.
-- `-model`: Ollama model; required unless `OLLAMA_MODEL` is set.
-- `-base-url`: Ollama URL; may also be set with `OLLAMA_BASE_URL` and otherwise
-  uses the client default `http://127.0.0.1:11434`.
-- `-timeout`: maximum duration for one Ollama generation; defaults to `10m`.
+- `-input`: 正規化済みのモック入力 JSON。デフォルトは
+  `testdata/scenarios/npm-affected-dependency/input.json` です。
+- `-model`: Ollama のモデル。`OLLAMA_MODEL` が設定されていない場合は必須です。
+- `-base-url`: Ollama の URL。`OLLAMA_BASE_URL` でも設定できます。
+  どちらも指定されていない場合は、クライアントのデフォルト `http://127.0.0.1:11434` を使用します。
+- `-timeout`: Ollama の 1 回の生成に対する最大所要時間。デフォルトは `10m` です。
 
-This mock command constructs its matcher without an ecosystem version evaluator,
-so fixture matches retain an `unknown` version status. `cmd/mvp-run`, by contrast,
-registers the combined local-npm/exact-OSV version evaluator. Progress and errors go to standard error;
-successful standard output contains JSON only.
+このモックコマンドは、エコシステムのバージョン評価器なしで照合器を構築するため、
+フィクスチャの一致のバージョン状態は `unknown` のままです。
+一方、`cmd/mvp-run` はローカル npm と OSV の完全一致を組み合わせたバージョン評価器を登録します。
+進捗とエラーは標準エラー出力に送られ、成功時の標準出力には JSON のみが含まれます。
 
-## GitHub-to-NVD MVP with `cmd/mvp-run`
+## `cmd/mvp-run` による GitHub から NVD への MVP
 
-`cmd/mvp-run` wires the implemented components into one real
-GitHub -> NVD -> Feed run. With no publication flags, it retrieves up to 200
-latest unique CVEs published at or before command start, searching backward as
-needed within the request budget:
+`cmd/mvp-run` は、実装済みのコンポーネントを接続し、GitHub -> NVD -> フィードの
+実際の処理を一度に実行します。公開期間のフラグがない場合は、PR #18 ベースのクローラーで
+NVD 全体の最新の重複のない CVE を 200 件取得します。全既知脆弱性のスキャンではありません。
 
 ```sh
 OLLAMA_MODEL=qwen3:8b \
@@ -373,8 +383,7 @@ go run ./cmd/mvp-run \
   -repository https://github.com/owner/repository
 ```
 
-An explicit publication window and the remaining options can be supplied as
-follows:
+明示的な公開期間と残りのオプションは、次のように指定できます。
 
 ```sh
 go run ./cmd/mvp-run \
@@ -387,54 +396,51 @@ go run ./cmd/mvp-run \
   -timeout 10m
 ```
 
-Flags:
+フラグ:
 
-- `-repository` (required): public GitHub repository URL.
-- `-ref`: optional branch or tag; defaults to the repository default branch.
-- `-published-start`: RFC 3339 NVD publication-window start. With neither
-  publication flag, search backward for the latest 200; with only an end,
-  default to 24 hours before that end.
-- `-published-end`: RFC 3339 NVD publication-window end; defaults to command
-  start and must not be later than command start.
-- `-osv`: optional external OSV pinned-package enrichment; defaults to `false`.
-  See the disclosure, cache, and failure boundaries above.
-- `-nvd-api-key`: optional NVD key; defaults to `NVD_API_KEY`.
-- `-nvd-base-url`: optional NVD-compatible CVE API URL; the real NVD CVE 2.0
-  endpoint is used by default.
-- `-model`: Ollama model; required unless `OLLAMA_MODEL` is set.
-- `-base-url`: Ollama URL; defaults from `OLLAMA_BASE_URL`, then to the Ollama
-  client default.
-- `-timeout`: positive maximum duration for each Ollama generation; defaults to
-  `10m`.
+- `-repository`（必須）: 公開 GitHub リポジトリの URL。
+- `-ref`: 任意のブランチまたはタグ。デフォルトはリポジトリのデフォルトブランチです。
+- `-published-start`: RFC 3339 形式の NVD 公開期間の開始日時。公開期間のフラグがどちらもない場合は、
+  期間フィルターなしで NVD 全体の末尾から最新の 200 件を取得します。終了日時のみが指定された場合は、
+  その終了日時の 24 時間前をデフォルトとします。
+- `-published-end`: RFC 3339 形式の NVD 公開期間の終了日時。デフォルトはコマンド開始時刻であり、
+  コマンド開始時刻より後にはできません。
+- `-osv`: 任意の外部 OSV による固定バージョンのパッケージ情報の補完。デフォルトは `false` です。
+  上述の開示、キャッシュ、失敗時の境界を参照してください。
+- `-nvd-api-key`: 任意の NVD キー。デフォルトは `NVD_API_KEY` です。
+- `-nvd-base-url`: 任意の NVD 互換 CVE API URL。デフォルトでは実際の NVD CVE 2.0
+  エンドポイントを使用します。
+- `-model`: Ollama のモデル。`OLLAMA_MODEL` が設定されていない場合は必須です。
+- `-base-url`: Ollama の URL。まず `OLLAMA_BASE_URL` をデフォルトとして使用し、
+  次に Ollama クライアントのデフォルトを使用します。
+- `-timeout`: Ollama の各生成に対する正の最大所要時間。デフォルトは `10m` です。
 
-The start and end flags are independently optional. For example, specifying only
-`-published-end` selects the 24 hours ending at that value, while specifying only
-`-published-start` selects from that value through command start. The end must
-not precede the start. There are no modification-window flags.
+開始と終了のフラグは、それぞれ独立して省略可能です。たとえば `-published-end` のみを指定すると、
+その値を終点とする 24 時間を選択します。`-published-start` のみを指定すると、
+その値からコマンド開始時刻までを選択します。終了日時は開始日時より前にはできません。
+変更期間のフラグはありません。
 
-The command creates a temporary workspace, acquires and profiles the repository
-once, and calls `FetchLatest` for a result set capped at 200 unique CVEs, potentially
-using multiple requests/windows. It normalizes and deduplicates the fetched CVEs,
-optionally enriches them through OSV, deterministically matches each one with the
-combined local-npm/exact-OSV version evaluator, builds Evidence for every
-candidate, and runs Screening
-plus conditional Deep Analysis. Normalization, matching, evidence, and analysis
-failures for individual CVEs are recorded in the output while processing
-continues. Unlike `src/workflow.ProcessRepository`, this CLI selects a bounded
-latest set rather than ingesting every record since registration; it does not
-query modification windows.
+このコマンドは一時ワークスペースを作成し、リポジトリを一度だけ取得・プロファイリングし、
+通常は `Fetch`、期間指定時は `FetchNormalizedLatest` を呼び出して、
+正規化・重複排除済みの CVE を最大 200 件取得します。
+任意で OSV による情報補完を行い、ローカル npm と OSV の完全一致を組み合わせたバージョン評価器で
+各 CVE を決定論的に照合します。その後、すべての候補について Evidence を構築し、
+スクリーニングと条件付きの詳細分析を実行します。
+取得・正規化に失敗した場合は分析前に停止します。個々の CVE に対する照合、根拠構築、分析の失敗は出力に記録し、処理を続行します。
+`src/workflow.ProcessRepository` とは異なり、この CLI は登録以降の全レコードを取り込むのではなく、
+上限付きの最新の集合を選択します。変更期間のクエリは行いません。
 
-Successful standard output is one indented JSON object containing the repository
-profile (including warnings/source observations), NVD
-available/fetched/normalized/duplicate/error counts, matched, excluded,
-screening-only, and analyzed counts, feed items with `applicability`, per-CVE
-errors, and optional OSV warnings. For `FetchLatest`, `nvd.available` is the
-selected unique count, not the total number of CVEs in NVD. Operational progress
-and fatal errors are written to standard error.
+成功時の標準出力は、インデント付きの単一の JSON オブジェクトです。
+リポジトリプロファイル（警告・ソース観測を含む）、NVD の利用可能・取得済み・正規化済み・重複・エラーの件数、
+一致・除外・スクリーニングのみ・分析済みの件数、`applicability` を持つフィード項目、
+CVE ごとのエラー、任意の OSV 警告を含みます。
+`nvd.available` / `nvd.fetched` はクローラーから渡された選択済みの件数であり、NVD 内の CVE の総数や通信で受け取った全件数ではありません。
+正規化の失敗は取得時のエラーとなるため、成功時の `normalization_errors` は 0 です。
+処理の進捗と致命的なエラーは標準エラー出力に書き込みます。
 
-## Offline validation
+## オフライン検証
 
-From the repository root:
+リポジトリのルートから実行します。
 
 ```sh
 go test ./src/ecosystem/lockprofile ./src/ecosystem/structuredlock ./src/ecosystem/versions ./src/repository ./src/osv
@@ -442,41 +448,40 @@ go test ./cmd/mvp-run -run '^TestMultilanguage' -count=1
 go test ./cmd/mvp-run
 ```
 
-`TestMultilanguageOSVToFeed` covers 13 integration cases: Maven Gradle, Maven
-POM, Packagist, NuGet, RubyGems, Cargo, Poetry, uv, Pipenv, Go, npm, pnpm, and
-Yarn. It exercises profiling, OSV request identities, CVE alias filtering,
-matching, Evidence, assessment, and feed output. Positive cases confirm Levels
-1–2 while Levels 3–5 remain `unknown`; negative alias cases do not create feed
-items. A separate private-Pipenv case checks that no OSV query is made.
-These tests use temporary fixtures, injected HTTP transports/local test servers,
-and fake analyzers—not live GitHub, NVD, OSV, or Ollama endpoints. They validate
-the documented subsets, not complete ecosystem resolution or exploitability.
+`TestMultilanguageOSVToFeed` は、Maven Gradle、Maven POM、Packagist、NuGet、RubyGems、
+Cargo、Poetry、uv、Pipenv、Go、npm、pnpm、Yarn の 13 の統合ケースを対象とします。
+プロファイリング、OSV リクエストの識別情報、CVE 別名のフィルタリング、照合、Evidence、
+評価、フィード出力を検証します。肯定ケースではレベル 1–2 を確認し、レベル 3–5 は
+`unknown` のままです。別名が一致しない否定ケースではフィード項目を作成しません。
+別途、非公開 Pipenv のケースで OSV クエリが行われないことを確認します。
+これらのテストは、一時フィクスチャ、注入された HTTP トランスポート・ローカルテストサーバー、
+偽の分析器を使用し、実際の GitHub、NVD、OSV、Ollama のエンドポイントは使用しません。
+検証するのは文書化された部分集合であり、エコシステム全体の完全な解決や悪用可能性ではありません。
 
-## MVP support boundary
+## MVP の対応範囲の境界
 
-| Area | Implemented | Missing / not established |
+| 領域 | 実装済み | 未対応 / 未確立 |
 | --- | --- | --- |
-| Acquisition | Anonymous public GitHub HTTPS checkout and immutable commit SHA. | Private/authenticated repositories, submodules, build/install execution. |
-| npm | `package.json`, `package-lock.json` v2/v3 direct/transitive locked versions, npm version evaluation, CPE product candidates. | Proof that a product alias identifies the same vulnerable package; deployed inventory. |
-| pnpm / Yarn | Supported pnpm v6/v9 and Yarn classic/Berry lock subsets feed normalized npm identities and version matching. | Unsupported protocols/formats, full resolution, complete dependency graphs. |
-| Go dependencies | Static `go.mod` require declarations and warnings. | Module/workspace/build resolution, `go.sum` inventory, local Go vulnerability-version evaluation, package-to-CPE mapping. |
-| Python | Conservative requirements and PEP 621/Poetry `pyproject.toml` declarations; Pipenv, Poetry, uv, and PDM lock subsets. | Dependency/marker/include resolution, dynamic/build-system dependencies, PEP 735/PDM development groups, lock reconciliation, local range comparison, package-to-CPE mapping. |
-| Java / Kotlin | Static direct POM dependencies and Gradle locked dependencies. | Effective POM/BOM/parent resolution, Gradle build-script evaluation, full graphs. |
-| Rust / PHP / Ruby / .NET | Cargo manifest/lock subsets, Composer locks, public RubyGems GEM sections, NuGet locks, `packages.config`, and schema-3 assets inventory. | Full package-manager resolution, workspace inheritance, unsupported sources/formats, inferred NuGet feed provenance, non-npm local range comparison. |
-| Pub / Deno / CocoaPods | Supported Pub, Deno npm/JSR, and public CocoaPods lock subsets; Pub, npm, and CocoaPods OSV mappings. | Full resolution, private/unsupported sources, JSR OSV mapping, verified artifact integrity. |
-| CRAN / Conan / vcpkg / Julia | Supported static inventory subsets; vcpkg versions remain unknown. | OSV mappings/advisory coverage, full resolution, verified registry provenance; source identities are not asserted OSV identities. |
-| Swift | Supported registry pins in resolved files, inventory-only. | Source-control pin identities, OSV mapping, full Swift resolution. |
-| Detection / coverage warnings | Expanded extension-based language detection and bounded warnings for selected unsupported dependency filenames. | Exhaustive format detection, dependency parsing of warned files, container/infrastructure profilers, full multi-language source analysis. |
-| Source inspection | Bounded Go AST imports, direct imported selector calls, literal `net/http.HandleFunc` routes, locations and limitations. | Type-aware/CVE-specific feature usage, other-language source analysis, complete symbol resolution. |
-| Reachability / taint | Levels 3–5 explicitly report `unknown`. | Call graphs, entry-point paths, interprocedural data flow, taint analysis, sanitization or attacker-input tracking. |
-| Production environment | Explicit missing-information reporting. | Deployed versions, production build/configuration, feature flags, authentication/exposure, runtime reachability, attacker prerequisites, exploitability proof. |
-| NVD | CLI latest-at-command-start retrieval, at most 200 unique CVEs via multiple bounded requests; separate registration-window all-page workflow. | Snapshot consistency guarantees, CLI modification-window ingestion, persistent cursors. |
-| OSV | Opt-in CVE-linked queries across ten mapped ecosystems (including Pub and CocoaPods), exact queried-version affected evidence, bounded per-run cache, external disclosure and provenance. | Swift/CRAN/JSR/Conan/vcpkg/Julia mappings, complete advisory coverage, unresolved-package matching, inferred NVD ranges, non-npm local range comparison, persistent cache, exploitability proof. |
-| Assessment / LLM / feed | Backend-owned Evidence and applicability report, Screening, conditional Deep Analysis, JSON feed output. | LLM authority to change backend facts, completed Levels 3–5, overall exploitability/risk scoring. |
-| Orchestration / storage | Bounded command-line run and callable registration-window workflow core. | Registration HTTP-handler integration, application-service orchestration, SQLite/other result persistence, recurring scheduler. |
+| 取得 | 認証なしでの公開 GitHub HTTPS チェックアウトと不変のコミット SHA。 | 非公開・認証付きリポジトリ、サブモジュール、ビルド・インストールの実行。 |
+| npm | `package.json`、`package-lock.json` v2/v3 の固定された直接・推移的依存関係のバージョン、npm バージョン評価、CPE 製品候補。 | 製品の別名が同じ脆弱なパッケージを識別することの証明。デプロイ済みの一覧。 |
+| pnpm / Yarn | 対応する pnpm v6/v9 と Yarn Classic/Berry のロックの部分集合から、正規化済みの npm 識別情報とバージョン照合へつなげます。 | 未対応のプロトコル・形式、完全な解決、完全な依存関係グラフ。 |
+| Go の依存関係 | 静的な `go.mod` の require 宣言と警告。 | モジュール・ワークスペース・ビルドの解決、`go.sum` の一覧作成、Go の脆弱性バージョンのローカル評価、パッケージから CPE へのマッピング。 |
+| Python | 保守的な requirements と PEP 621/Poetry の `pyproject.toml` 宣言。Pipenv、Poetry、uv、PDM のロックの部分集合。 | 依存関係・マーカー・インクルードの解決、動的・ビルドシステムの依存関係、PEP 735/PDM の開発用グループ、ロックの整合処理、ローカルな範囲比較、パッケージから CPE へのマッピング。 |
+| Java / Kotlin | 静的な POM の直接依存関係と Gradle の固定された依存関係。 | 実効 POM/BOM/親の解決、Gradle ビルドスクリプトの評価、完全なグラフ。 |
+| Rust / PHP / Ruby / .NET | Cargo のマニフェスト・ロックの部分集合、Composer ロック、公開 RubyGems の GEM セクション、NuGet ロック、`packages.config`、スキーマ 3 の assets 一覧。 | パッケージマネージャーの完全な解決、ワークスペースの継承、未対応のソース・形式、NuGet フィードの出所の推定、npm 以外のローカルな範囲比較。 |
+| Pub / Deno / CocoaPods | 対応する Pub、Deno npm/JSR、公開 CocoaPods のロックの部分集合。Pub、npm、CocoaPods の OSV マッピング。 | 完全な解決、非公開・未対応のソース、JSR の OSV マッピング、成果物の完全性の検証。 |
+| CRAN / Conan / vcpkg / Julia | 対応する静的な一覧の部分集合。vcpkg のバージョンは不明のままです。 | OSV マッピング・アドバイザリーの網羅、完全な解決、レジストリの出所の検証。ソース識別情報を OSV 識別情報であると断定しません。 |
+| Swift | 解決済みファイル内の対応するレジストリ固定指定。一覧作成のみ。 | ソース管理の固定指定の識別情報、OSV マッピング、Swift の完全な解決。 |
+| 検出 / 対応範囲の警告 | 拡張された拡張子ベースの言語検出と、選定された未対応の依存関係ファイル名に対する範囲を限定した警告。 | 網羅的な形式検出、警告対象ファイルの依存関係解析、コンテナー・インフラストラクチャーのプロファイラー、複数言語の完全なソース分析。 |
+| ソース検査 | 範囲を限定した Go AST のインポート、インポートしたパッケージのセレクターを直接使う呼び出し、リテラルの `net/http.HandleFunc` ルート、位置情報と制限。 | 型を考慮した・CVE 固有の機能使用、他言語のソース分析、完全なシンボル解決。 |
+| 到達可能性 / テイント | レベル 3–5 は明示的に `unknown` を報告します。 | コールグラフ、エントリーポイントの経路、手続き間データフロー、テイント解析、サニタイズや攻撃者入力の追跡。 |
+| 本番環境 | 不足情報の明示的な報告。 | デプロイ済みバージョン、本番ビルド・設定、機能フラグ、認証・外部への公開状態、実行時の到達可能性、攻撃者の前提条件、悪用可能性の証明。 |
+| NVD | PR #18 ベースの全体末尾取得と、明示した公開期間の取得。複数の上限付きリクエストで、重複のない CVE を最大 200 件取得します。別途、登録期間の全ページを取得するワークフロー。 | スナップショットの一貫性保証、CLI での変更期間の取り込み、永続カーソル。 |
+| OSV | 10 のマッピング済みエコシステム（Pub と CocoaPods を含む）にわたる任意の CVE 関連クエリ、問い合わせたバージョンと完全一致する影響ありの根拠、上限付きの実行単位キャッシュ、外部への開示と出所。 | Swift/CRAN/JSR/Conan/vcpkg/Julia のマッピング、アドバイザリーの完全な網羅、未解決パッケージの照合、NVD の範囲の推定、npm 以外のローカルな範囲比較、永続キャッシュ、悪用可能性の証明。 |
+| 評価 / LLM / フィード | バックエンドが管理する Evidence と該当性レポート、スクリーニング、条件付きの詳細分析、JSON フィード出力。 | バックエンドの事実情報を変更する LLM の権限、レベル 3–5 の完成、総合的な悪用可能性・リスクのスコアリング。 |
+| 処理の統合制御 / ストレージ | 上限付きのコマンドライン実行と、呼び出し可能な登録期間ワークフローの中核。 | 登録 HTTP ハンドラーとの統合、アプリケーションサービスの統合制御、SQLite などによる結果の永続化、定期実行スケジューラー。 |
 
-The MVP is a bounded command-line analysis with optional in-memory OSV caching.
-It does not register repositories, remember previous runs, or claim that a
-matched package is reachable or exploitable. Empty observations, unsupported
-input, and unknown assessment levels must not be interpreted as evidence of
-safety.
+この MVP は、任意のインメモリー OSV キャッシュを備えた、範囲を限定したコマンドライン分析です。
+リポジトリを登録したり、以前の実行を記憶したり、一致したパッケージが到達可能または悪用可能であると
+主張したりするものではありません。空の観測結果、未対応の入力、不明な評価レベルを、
+安全性の根拠と解釈してはいけません。

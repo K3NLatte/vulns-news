@@ -44,6 +44,21 @@ func TestTraversalDifferential(t *testing.T) {
 	}
 }
 
+func TestDefaultTraversalBeyondBatches(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 260; i++ {
+		put(t, root, fmt.Sprintf("ignored-%03d", i), "")
+	}
+	put(t, root, "zz/pubspec.lock", pubFixture)
+	got, err := Profile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components) == 0 || len(got.Ecosystems) == 0 || !reflect.DeepEqual(got.Ecosystems[0].Lockfiles, []string{"zz/pubspec.lock"}) {
+		t.Fatalf("missing recognized file after ignored entries: %+v", got)
+	}
+}
+
 func TestTraversalCustomLimits(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "nested/pubspec.lock", pubFixture)
@@ -56,7 +71,7 @@ func TestTraversalCustomLimits(t *testing.T) {
 			lim := defaultLimits
 			switch field {
 			case "entries":
-				lim.entries = 0
+				lim.entries = 1
 			case "depth":
 				lim.depth = 0
 			case "fileBytes":

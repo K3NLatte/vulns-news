@@ -55,10 +55,10 @@ normalization. No OSV mappings or source-host guarantees are fabricated.
 Traversal and reads use `os.Root`, require a non-symlink directory root, and skip
 symlinks (including internal links) and special files with warnings. `.git`,
 `node_modules`, and `.venv` directories are pruned; `obj` is deliberately scanned for
-.NET assets. Limits are fixed per call:
+.NET assets. Default limits are fixed per call:
 
 - 4 MiB per recognized file; 32 MiB total recognized-file contents
-- 100,000 visited directory entries; 64 levels of directory nesting
+- No visited-directory-entry cap by default; 64 levels of directory nesting
 - 100,000 examined package records, including skipped records
 - 64 levels of JSON/YAML/XML nesting
 
@@ -73,8 +73,8 @@ limits. No filesystem writes are performed.
 
 Tests include realistic fixtures for every format, Deno schema layouts, exported API
 compilation, deterministic and versionless identities, provenance filtering,
-unsupported schemas, malformed data, duplicate keys, byte/entry/depth/record limits,
-symlink roots/files/directories, and a Linux FIFO.
+unsupported schemas, malformed data, duplicate keys, byte/depth/record limits,
+opt-in entry limits, symlink roots/files/directories, and a Linux FIFO.
 
 From the Windows editor environment:
 

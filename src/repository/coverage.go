@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	maxCoverageEntries = 100_000
-	maxCoverageDepth   = 64
+	maxCoverageDepth = 64
 )
 
 // dependencyCoverageWarnings recognizes selected unsupported dependency formats.
@@ -25,7 +24,7 @@ func dependencyCoverageWarnings(root string) ([]string, error) {
 }
 
 func dependencyCoverageWarningsWithTraversal(root string, cache *traversal.Cache) ([]string, error) {
-	return dependencyCoverageWarningsCore(root, maxCoverageEntries, maxCoverageDepth, cache)
+	return dependencyCoverageWarningsCore(root, 0, maxCoverageDepth, cache)
 }
 
 func dependencyCoverageWarningsWithLimits(root string, maxEntries, maxDepth int) ([]string, error) {
@@ -74,7 +73,7 @@ func dependencyCoverageWarningsCore(root string, maxEntries, maxDepth int, cache
 			batch, readErr := cache.ReadDir(relative, d, 128)
 			for _, entry := range batch {
 				entries++
-				if entries > maxEntries {
+				if maxEntries > 0 && entries > maxEntries {
 					return errors.New("dependency coverage entry limit exceeded")
 				}
 				name := entry.Name()

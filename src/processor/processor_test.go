@@ -37,7 +37,7 @@ func TestProcessorScreen(t *testing.T) {
 
 	generator := &fakeGenerator{response: llm.ChatResponse{
 		Model:            "qwen3:8b",
-		Content:          `{"relevance":"related","reason":"NVDの対象Packageとlockfileの依存関係が一致します。","evidence_ids":["EVD-NVD-001","EVD-REPO-DEP-001"]}`,
+		Content:          `{"relevance":"related","reason":"NVDの対象Packageとlockfileの依存関係が一致します。","advisory_evidence_ids":["EVD-NVD-001"],"repository_evidence_ids":["EVD-REPO-DEP-001"]}`,
 		DoneReason:       "stop",
 		PromptTokens:     120,
 		CompletionTokens: 30,
@@ -115,7 +115,7 @@ func TestProcessorRejectsUnknownEvidenceID(t *testing.T) {
 	t.Parallel()
 
 	generator := &fakeGenerator{response: llm.ChatResponse{
-		Content: `{"relevance":"related","reason":"一致します。","evidence_ids":["EVD-NVD-001","EVD-MADE-UP"]}`,
+		Content: `{"relevance":"related","reason":"一致します。","advisory_evidence_ids":["EVD-NVD-001"],"repository_evidence_ids":["EVD-MADE-UP"]}`,
 	}}
 	processor, err := New(generator)
 	if err != nil {
@@ -133,9 +133,10 @@ func TestProcessorEnforcesJSONSchema(t *testing.T) {
 
 	tests := map[string]string{
 		"missing required field": `{"relevance":"related","reason":"一致します。"}`,
-		"wrong property case":    `{"relevance":"related","Reason":"一致します。","evidence_ids":["EVD-NVD-001","EVD-REPO-DEP-001"]}`,
-		"null array":             `{"relevance":"related","reason":"一致します。","evidence_ids":null}`,
-		"additional property":    `{"relevance":"related","reason":"一致します。","evidence_ids":["EVD-NVD-001","EVD-REPO-DEP-001"],"unexpected":true}`,
+		"wrong property case":    `{"relevance":"related","Reason":"一致します。","advisory_evidence_ids":["EVD-NVD-001"],"repository_evidence_ids":["EVD-REPO-DEP-001"]}`,
+		"null array":             `{"relevance":"related","reason":"一致します。","advisory_evidence_ids":null,"repository_evidence_ids":["EVD-REPO-DEP-001"]}`,
+		"legacy wire":            `{"relevance":"related","reason":"一致します。","evidence_ids":["EVD-NVD-001","EVD-REPO-DEP-001"]}`,
+		"additional property":    `{"relevance":"related","reason":"一致します。","advisory_evidence_ids":["EVD-NVD-001"],"repository_evidence_ids":["EVD-REPO-DEP-001"],"unexpected":true}`,
 	}
 	for name, response := range tests {
 		name, response := name, response
@@ -157,7 +158,7 @@ func TestProcessorRejectsDuplicateJSONKeys(t *testing.T) {
 	t.Parallel()
 
 	generator := &fakeGenerator{response: llm.ChatResponse{
-		Content: `{"relevance":"related","reason":"一致します。","reason":"重複しています。","evidence_ids":["EVD-NVD-001","EVD-REPO-DEP-001"]}`,
+		Content: `{"relevance":"related","reason":"一致します。","reason":"重複しています。","advisory_evidence_ids":["EVD-NVD-001"],"repository_evidence_ids":["EVD-REPO-DEP-001"]}`,
 	}}
 	processor, err := New(generator)
 	if err != nil {
@@ -174,7 +175,7 @@ func TestProcessorRequiresBothScreeningEvidenceDomains(t *testing.T) {
 	t.Parallel()
 
 	processor, err := New(&fakeGenerator{response: llm.ChatResponse{
-		Content: `{"relevance":"related","reason":"一致します。","evidence_ids":["EVD-NVD-001"]}`,
+		Content: `{"relevance":"related","reason":"一致します。","advisory_evidence_ids":["EVD-NVD-001"],"repository_evidence_ids":[]}`,
 	}})
 	if err != nil {
 		t.Fatalf("New: %v", err)

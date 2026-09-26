@@ -218,7 +218,7 @@ func TestErrors(t *testing.T) {
 }
 
 func TestResourceBounds(t *testing.T) {
-	for _, name := range []string{"file bytes", "total bytes", "files", "entries", "depth", "findings"} {
+	for _, name := range []string{"file bytes", "total bytes", "files", "depth", "findings"} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			switch name {
@@ -233,10 +233,7 @@ func TestResourceBounds(t *testing.T) {
 				for n := 0; n <= MaxFiles; n++ {
 					put(t, root, fmt.Sprintf("%03d.go", n), "package p")
 				}
-			case "entries":
-				for n := 0; n <= MaxEntries; n++ {
-					put(t, root, fmt.Sprintf("%05d.txt", n), "")
-				}
+
 			case "depth":
 				put(t, root, strings.Repeat("d/", MaxDepth+1)+"a.go", "package p")
 			case "findings":
@@ -250,6 +247,18 @@ func TestResourceBounds(t *testing.T) {
 				t.Fatal("budget overrun")
 			}
 		})
+	}
+}
+
+func TestManyIrrelevantEntriesDoNotAbortInspection(t *testing.T) {
+	root := t.TempDir()
+	for n := 0; n < 300; n++ {
+		put(t, root, fmt.Sprintf("%03d.txt", n), "")
+	}
+	put(t, root, "sample.go", "package p\nimport \"net/http\"\n")
+	r := inspectOK(t, root)
+	if r.FilesInspected != 1 || !r.Complete {
+		t.Fatalf("unexpected report: %+v", r)
 	}
 }
 

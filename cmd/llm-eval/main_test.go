@@ -78,7 +78,7 @@ func TestMockPipelineRunsMatcherScreeningAnalysisAndFeed(t *testing.T) {
 	generator := &scriptedGenerator{responses: []llm.ChatResponse{
 		{
 			Model:   "test-screening",
-			Content: `{"relevance":"related","reason":"CVEの対象PackageとRepositoryの依存関係が一致します。","evidence_ids":["EVD-NVD-001","EVD-REPO-DEP-001"]}`,
+			Content: `{"relevance":"related","reason":"CVEの対象PackageとRepositoryの依存関係が一致します。","advisory_evidence_ids":["EVD-NVD-001"],"repository_evidence_ids":["EVD-REPO-DEP-001"]}`,
 		},
 		{
 			Model: "test-analysis",

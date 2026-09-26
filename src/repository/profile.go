@@ -24,7 +24,6 @@ import (
 )
 
 const (
-	maxLanguageFiles       = 100_000
 	maxLanguageSourcePaths = 10
 )
 
@@ -208,16 +207,9 @@ func detectLanguagesWithTraversal(root string, cache *traversal.Cache) ([]domain
 	counts := make(map[string]int)
 	sources := make(map[string][]string)
 	total := 0
-	seen := 0
 	visit := func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
-		}
-		if path != root {
-			seen++
-			if seen > maxLanguageFiles {
-				return errors.New("repository exceeds language-detection file limit")
-			}
 		}
 		if entry.IsDir() {
 			switch entry.Name() {

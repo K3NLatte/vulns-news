@@ -209,6 +209,23 @@ func TestProfileFSLimitsTraversal(t *testing.T) {
 		"b/package.json": &fstest.MapFile{Data: []byte(`{}`)},
 	}
 
+	if DefaultLimits().MaxFiles != 0 {
+		t.Fatal("default entry limit must be disabled")
+	}
+	unlimited, err := NewProfiler(Limits{MaxFileSize: 100, MaxDepth: 10})
+	if err != nil {
+		t.Fatalf("NewProfiler with unlimited entries: %v", err)
+	}
+	if _, err := unlimited.ProfileFS(filesystem); err != nil {
+		t.Fatalf("unlimited entries: %v", err)
+	}
+	if _, err := ProfileFS(filesystem); err != nil {
+		t.Fatalf("default limits: %v", err)
+	}
+	if _, err := NewProfiler(Limits{MaxFileSize: 100, MaxFiles: -1, MaxDepth: 10}); err == nil {
+		t.Fatal("negative entry limit accepted")
+	}
+
 	fileLimited, err := NewProfiler(Limits{MaxFileSize: 100, MaxFiles: 1, MaxDepth: 10})
 	if err != nil {
 		t.Fatalf("NewProfiler: %v", err)

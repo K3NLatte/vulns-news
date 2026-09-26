@@ -25,7 +25,6 @@ type Fragment struct {
 
 const (
 	maxDepth      = 32
-	maxEntries    = 20000
 	maxFileBytes  = 2 << 20
 	maxTotalBytes = 16 << 20
 	maxComponents = 50000
@@ -63,7 +62,7 @@ func profileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 	defer r.Close()
 	s := &state{seen: map[string]bool{}}
 	usages := map[string]*domain.EcosystemUsage{}
-	entries, total := 0, 0
+	total := 0
 	var walk func(string, int) error
 	walk = func(dir string, depth int) error {
 		if depth > maxDepth {
@@ -91,10 +90,6 @@ func profileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 		for {
 			batch, readErr := cache.ReadDir(dir, d, 128)
 			for _, e := range batch {
-				entries++
-				if entries > maxEntries {
-					return errors.New("nativeprofile entry limit exceeded")
-				}
 				file := path.Join(dir, e.Name())
 				if e.Type()&os.ModeSymlink != 0 {
 					s.warn(file, "symlink skipped")

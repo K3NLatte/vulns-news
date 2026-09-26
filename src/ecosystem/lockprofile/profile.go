@@ -30,7 +30,6 @@ type Fragment struct {
 const (
 	maxFileBytes  = 4 << 20
 	maxTotalBytes = 32 << 20
-	maxEntries    = 100000
 	maxDepth      = 64
 )
 
@@ -77,7 +76,6 @@ func ProfileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 	}
 	defer r.Close()
 	var files []string
-	entries := 0
 	var walk func(string, int) error
 	walk = func(dir string, depth int) error {
 		if depth > maxDepth {
@@ -98,10 +96,6 @@ func ProfileWithTraversal(root string, cache *traversal.Cache) (Fragment, error)
 		for {
 			batch, readErr := cache.ReadDir(dir, d, 1)
 			for _, e := range batch {
-				entries++
-				if entries > maxEntries {
-					return errors.New("traversal entry limit exceeded")
-				}
 				name := path.Join(dir, e.Name())
 				if e.Type()&fs.ModeSymlink != 0 {
 					continue

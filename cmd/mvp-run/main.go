@@ -35,6 +35,20 @@ const nvdPageLimit = 200
 const osvDisclosure = "OSV enabled: dependency ecosystems, names and pinned versions will be sent externally to https://api.osv.dev."
 const osvProvenanceWarning = "Optional OSV package-match evidence is identified by osv: target IDs, osv_match references and OSV advisory citations; it is not NVD version-range evidence or proof of exploitability. OSV confirms only the exact queried version; other versions and non-npm ranges remain unknown."
 
+type vulnerabilityFetcher interface {
+	Fetch(context.Context, int) ([]nvd.NormalizedVulnerability, error)
+	FetchNormalizedLatest(context.Context, nvd.LatestOptions) ([]nvd.NormalizedVulnerability, error)
+}
+
+func fetchVulnerabilities(ctx context.Context, client vulnerabilityFetcher, cfg config) ([]nvd.NormalizedVulnerability, error) {
+	if cfg.publishedFrom.IsZero() && cfg.publishedTo.IsZero() {
+		return client.Fetch(ctx, nvdPageLimit)
+	}
+	return client.FetchNormalizedLatest(ctx, nvd.LatestOptions{
+		AsOf: cfg.asOf, PublishedStart: cfg.publishedFrom, PublishedEnd: cfg.publishedTo, Limit: nvdPageLimit,
+	})
+}
+
 // Enricher adds optional external package-match facts before deterministic matching.
 type Enricher interface {
 	Enrich(context.Context, domain.RepositoryProfile, domain.NormalizedVulnerability) (domain.NormalizedVulnerability, error)
@@ -68,6 +82,11 @@ type runError struct {
 	Error string `json:"error"`
 }
 
+type matchMatrixRow struct {
+	CVEID string `json:"cve_id"`
+	matcher.Trace
+}
+
 type output struct {
 	Repository    domain.RepositoryProfile `json:"repository_profile"`
 	NVD           nvdCounts                `json:"nvd"`
@@ -77,6 +96,7 @@ type output struct {
 	Analyzed      int                      `json:"analyzed"`
 	FeedItems     []feed.Item              `json:"feed_items"`
 	Errors        []runError               `json:"errors"`
+	MatchMatrix   []matchMatrixRow         `json:"match_matrix"`
 	Warnings      []string                 `json:"warnings,omitempty"`
 }
 
@@ -114,6 +134,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create NVD client: %w", err)
 	}
+	if strings.TrimSpace(cfg.nvdAPIKey) == "" {
+		fmt.Fprintln(os.Stderr, "NVD API key: not configured; using unauthenticated rate limits")
+	} else {
+		fmt.Fprintln(os.Stderr, "NVD API key: configured")
+	}
 	var enricher Enricher
 	if cfg.osvEnabled {
 		client, err := osv.NewClient(osv.Config{})
@@ -150,17 +175,17 @@ func run() error {
 	}
 	fmt.Fprintf(os.Stderr, "Profiled %d components; fetching up to %d latest NVD CVEs...\n", len(profile.Components), nvdPageLimit)
 
-	page, err := nvdClient.FetchLatest(ctx, nvd.LatestOptions{
-		AsOf:           cfg.asOf,
-		PublishedStart: cfg.publishedFrom,
-		PublishedEnd:   cfg.publishedTo,
-		Limit:          nvdPageLimit,
-	})
+	if cfg.publishedFrom.IsZero() {
+		fmt.Fprintln(os.Stderr, "NVD crawler: global latest publications (PR #18-based normalized output)")
+	} else {
+		fmt.Fprintln(os.Stderr, "NVD crawler: explicit publication window")
+	}
+	vulnerabilities, err := fetchVulnerabilities(ctx, nvdClient, cfg)
 	if err != nil {
 		return fmt.Errorf("fetch NVD CVEs: %w", err)
 	}
 
-	result := processPageWithEnricher(ctx, profile, page, matcher.New(versions.New()), analysisProcessor, enricher)
+	result := processNormalizedWithEnricher(ctx, profile, vulnerabilities, matcher.New(versions.New()), analysisProcessor, enricher)
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
@@ -187,7 +212,7 @@ func parseConfig(now time.Time) (config, error) {
 	osvEnabled := flag.Bool("osv", false, "opt in to OSV package matching; discloses dependency names, ecosystems and pinned versions externally to api.osv.dev")
 	nvdBaseURL := flag.String("nvd-base-url", "", "optional NVD-compatible CVE API URL")
 	nvdAPIKey := flag.String("nvd-api-key", os.Getenv("NVD_API_KEY"), "NVD API key (or set NVD_API_KEY)")
-	publishedStart := flag.String("published-start", "", "NVD publication start in RFC3339 (default: search backwards until 200; with end only: previous 24 hours)")
+	publishedStart := flag.String("published-start", "", "NVD publication start in RFC3339 (default: global latest 200; with end only: previous 24 hours)")
 	publishedEnd := flag.String("published-end", "", "NVD publication end in RFC3339 (default and maximum: command start)")
 	flag.Parse()
 
@@ -253,30 +278,47 @@ func processPage(ctx context.Context, profile domain.RepositoryProfile, page nvd
 }
 
 func processPageWithEnricher(ctx context.Context, profile domain.RepositoryProfile, page nvd.Page, candidateMatcher *matcher.Matcher, analyzer pipeline.Analyzer, enricher Enricher) output {
+	vulnerabilities := make([]domain.NormalizedVulnerability, 0, len(page.Vulnerabilities))
+	var normalizationErrors []runError
+	for _, item := range page.Vulnerabilities {
+		vulnerability, err := nvd.Normalize(item.CVE)
+		if err != nil {
+			normalizationErrors = append(normalizationErrors, runError{CVEID: strings.TrimSpace(item.CVE.ID), Stage: "normalize", Error: err.Error()})
+			continue
+		}
+		vulnerabilities = append(vulnerabilities, vulnerability)
+	}
+	result := processNormalizedWithEnricher(ctx, profile, vulnerabilities, candidateMatcher, analyzer, enricher)
+	result.NVD.Available = page.TotalResults
+	result.NVD.Fetched = len(page.Vulnerabilities)
+	result.NVD.NormalizationErrors = len(normalizationErrors)
+	if len(normalizationErrors) > 0 {
+		result.Errors = append(normalizationErrors, result.Errors...)
+	}
+	return result
+}
+
+func processNormalizedWithEnricher(ctx context.Context, profile domain.RepositoryProfile, vulnerabilities []domain.NormalizedVulnerability, candidateMatcher *matcher.Matcher, analyzer pipeline.Analyzer, enricher Enricher) output {
 	result := output{
 		Repository: profile,
 		NVD: nvdCounts{
-			Available: page.TotalResults,
-			Fetched:   len(page.Vulnerabilities),
+			Available: len(vulnerabilities),
+			Fetched:   len(vulnerabilities),
 		},
-		FeedItems: []feed.Item{},
-		Errors:    []runError{},
+		FeedItems:   []feed.Item{},
+		Errors:      []runError{},
+		MatchMatrix: []matchMatrixRow{},
 	}
 	if enricher != nil {
 		result.Warnings = []string{osvProvenanceWarning}
 	}
-	seen := make(map[string]struct{}, len(page.Vulnerabilities))
-	for index, item := range page.Vulnerabilities {
+	seen := make(map[string]struct{}, len(vulnerabilities))
+	for index, vulnerability := range vulnerabilities {
 		if ctx.Err() != nil {
 			result.Errors = append(result.Errors, runError{Stage: "context", Error: ctx.Err().Error()})
 			break
 		}
-		vulnerability, err := nvd.Normalize(item.CVE)
-		if err != nil {
-			result.NVD.NormalizationErrors++
-			result.Errors = append(result.Errors, runError{CVEID: strings.TrimSpace(item.CVE.ID), Stage: "normalize", Error: err.Error()})
-			continue
-		}
+
 		if _, exists := seen[vulnerability.ID]; exists {
 			result.NVD.Duplicates++
 			continue
@@ -288,16 +330,19 @@ func processPageWithEnricher(ctx context.Context, profile domain.RepositoryProfi
 			enriched, err := enricher.Enrich(ctx, profile, vulnerability)
 			if err != nil {
 				result.Errors = append(result.Errors, runError{CVEID: vulnerability.ID, Stage: "osv", Error: err.Error()})
+				result.MatchMatrix = append(result.MatchMatrix, matchMatrixRow{CVEID: vulnerability.ID, Trace: matcher.Trace{Decision: "enrichment_error", Targets: []matcher.TargetDecision{}}})
 				continue
 			}
 			vulnerability = enriched
 		}
 
-		candidate, matched, err := candidateMatcher.Match(profile, vulnerability)
+		candidate, trace, matched, err := candidateMatcher.MatchWithTrace(profile, vulnerability)
 		if err != nil {
 			result.Errors = append(result.Errors, runError{CVEID: vulnerability.ID, Stage: "match", Error: err.Error()})
+			result.MatchMatrix = append(result.MatchMatrix, matchMatrixRow{CVEID: vulnerability.ID, Trace: matcher.Trace{Decision: "match_error", Targets: []matcher.TargetDecision{}}})
 			continue
 		}
+		result.MatchMatrix = append(result.MatchMatrix, matchMatrixRow{CVEID: vulnerability.ID, Trace: trace})
 		if !matched {
 			continue
 		}
@@ -329,7 +374,7 @@ func processPageWithEnricher(ctx context.Context, profile domain.RepositoryProfi
 				}
 			}
 		}
-		fmt.Fprintf(os.Stderr, "Analyzing candidate %s (%d/%d)...\n", vulnerability.ID, index+1, len(page.Vulnerabilities))
+		fmt.Fprintf(os.Stderr, "Analyzing candidate %s (%d/%d)...\n", vulnerability.ID, index+1, len(vulnerabilities))
 		processed, err := pipeline.Process(ctx, analyzer, processor.Input{
 			Vulnerability: vulnerability,
 			Repository:    profile,

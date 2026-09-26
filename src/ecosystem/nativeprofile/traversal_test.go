@@ -10,6 +10,21 @@ import (
 	"vulns-news/src/traversal"
 )
 
+func TestRecognizedManifestBeyondBatches(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 260; i++ {
+		put(t, root, fmt.Sprintf("ignored-%03d", i), "")
+	}
+	put(t, root, "zz/vcpkg.json", `{"name":"app","dependencies":["zlib"]}`)
+	got, err := Profile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components) != 1 || got.Components[0].Name != "zlib" || got.Components[0].SourcePath != "zz/vcpkg.json" {
+		t.Fatalf("missing recognized manifest after ignored entries: %+v", got.Components)
+	}
+}
+
 func TestTraversalDifferential(t *testing.T) {
 	for _, invalid := range []bool{false, true} {
 		t.Run(fmt.Sprint(invalid), func(t *testing.T) {

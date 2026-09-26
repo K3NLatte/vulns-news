@@ -43,8 +43,10 @@ are deterministic. Repeated identical declarations within a scope are deduplicat
   package aliases. Only explicit `=1.2.3`-style complete SemVer pins retain versions;
   bare versions are Cargo ranges. Workspace-inherited, git, path, and custom
   registry dependencies are skipped with warnings. Workspace templates are not
-  resolved. Patch/replace tables cause an error, since they can change identities
-  throughout a workspace.
+  resolved. If any Cargo manifest has a patch/replace table, declarations from
+  all Cargo manifests in the profiled tree are excluded with path-qualified
+  warnings: overrides can change identities across workspace members. Other
+  manifests continue to be profiled; the Cargo manifest inventory is incomplete.
 
 Manifest dependencies are direct; PDM records are not asserted direct. Optional,
 development, build, and target/group declarations carry distinct scopes. Project
@@ -76,10 +78,10 @@ against their pre-open identity. Use a stable checkout: these checks are not an
 atomic snapshot and cannot guarantee safety against all concurrent in-root file
 replacement races (including replacement with a blocking special file).
 
-Fixed limits: depth 32, 20,000 directory entries, 2 MiB per input, 16 MiB total
-input bytes, and 50,000 unique components. Directories are enumerated in bounded
-batches. `.git`, `node_modules`, `.venv`, `venv`, `target`, and `__pycache__` are
-pruned. Only the three supported filenames are read; Cargo config presence is
+There is no directory-entry cap. Fixed limits remain: depth 32, 2 MiB per input,
+16 MiB total input bytes, and 50,000 unique components. Directories are
+enumerated in bounded batches. `.git`, `node_modules`, `.venv`, `venv`,
+`target`, and `__pycache__` are pruned. Only the three supported filenames are read; Cargo config presence is
 observed but its contents are not read. Parse, I/O, and resource-limit errors
 return an empty fragment, never a partial inventory.
 

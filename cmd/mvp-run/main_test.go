@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"os"
@@ -85,6 +86,40 @@ func TestProcessPageExcludesUnrelatedAndDeduplicates(t *testing.T) {
 	}
 	if analyzer.deepCalls != 0 {
 		t.Fatalf("Deep Analysis calls = %d, want 0", analyzer.deepCalls)
+	}
+	if len(got.MatchMatrix) != 1 || got.MatchMatrix[0].CVEID != cve.ID || got.MatchMatrix[0].Decision != "matched" || len(got.MatchMatrix[0].Targets) != 1 || got.MatchMatrix[0].Targets[0].IdentityMatches != 1 {
+		t.Fatalf("match matrix = %+v", got.MatchMatrix)
+	}
+}
+
+func TestMatchMatrixExplainsSkippedCVEs(t *testing.T) {
+	profile := domain.RepositoryProfile{Repository: domain.RepositoryIdentity{ID: "example/project", CommitSHA: "abc"}, Components: []domain.Component{{ID: "component-1", Ecosystem: "npm", Name: "next", Version: "14.0.0"}}}
+	vulnerabilities := []domain.NormalizedVulnerability{
+		{ID: "CVE-2026-1"},
+		{ID: "CVE-2026-2", Affected: []domain.AffectedTarget{{ID: "target-1", Kind: domain.AffectedPackage, Ecosystem: "npm", PackageName: "other"}}},
+	}
+	got := processNormalizedWithEnricher(context.Background(), profile, vulnerabilities, matcher.New(nil), &fakeAnalyzer{}, nil)
+	if got.Matched != 0 || len(got.MatchMatrix) != 2 {
+		t.Fatalf("unexpected result: %+v", got)
+	}
+	if got.MatchMatrix[0].Decision != "no_affected_targets" || got.MatchMatrix[1].Decision != "no_identity_match" || got.MatchMatrix[1].Targets[0].RepositoryItemsCompared != 1 {
+		t.Fatalf("unexpected matrix: %+v", got.MatchMatrix)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Rows []struct {
+			CVEID    string `json:"cve_id"`
+			Decision string `json:"decision"`
+			Targets  []struct {
+				Compared int `json:"repository_items_compared"`
+			} `json:"targets"`
+		} `json:"match_matrix"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil || len(decoded.Rows) != 2 || decoded.Rows[1].CVEID != "CVE-2026-2" || decoded.Rows[1].Targets[0].Compared != 1 {
+		t.Fatalf("unexpected JSON matrix: %s, %v", encoded, err)
 	}
 }
 

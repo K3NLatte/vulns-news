@@ -4,4 +4,6 @@
 // package.json and package-lock.json lockfile versions 2 and 3 are supported.
 // pnpm and Yarn manifests and lockfiles are intentionally unsupported; callers
 // should use separate ecosystem adapters for pnpm-lock.yaml and yarn.lock.
+// Traversal has no default entry cap; a positive Limits.MaxFiles adds one.
+// File-size and depth limits remain enabled by default.
 package npm

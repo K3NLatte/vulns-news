@@ -26,17 +26,17 @@ var (
 	ErrTotalSize    = errors.New("static profile exceeds total read limit")
 )
 
-// Limits bounds traversal (including directories), individual reads, and total
-// manifest bytes. Excluded directories count as entries but are not traversed.
+// Limits bounds traversal depth, individual reads, and total manifest bytes.
+// MaxFiles optionally bounds entries (including excluded directories).
 type Limits struct {
 	MaxFileSize  int64
 	MaxTotalSize int64
-	MaxFiles     int
+	MaxFiles     int // 0 disables the traversal-entry limit.
 	MaxDepth     int
 }
 
 func DefaultLimits() Limits {
-	return Limits{MaxFileSize: 2 << 20, MaxTotalSize: 32 << 20, MaxFiles: 100_000, MaxDepth: 64}
+	return Limits{MaxFileSize: 2 << 20, MaxTotalSize: 32 << 20, MaxFiles: 0, MaxDepth: 64}
 }
 
 // Warning describes omitted or unresolved syntax. Line is one-based, or zero
@@ -58,8 +58,8 @@ type Profiler struct{ limits Limits }
 func New() *Profiler { return &Profiler{limits: DefaultLimits()} }
 
 func NewProfiler(limits Limits) (*Profiler, error) {
-	if limits.MaxFileSize <= 0 || limits.MaxTotalSize <= 0 || limits.MaxFiles <= 0 || limits.MaxDepth <= 0 {
-		return nil, errors.New("static profiler limits must be positive")
+	if limits.MaxFileSize <= 0 || limits.MaxTotalSize <= 0 || limits.MaxFiles < 0 || limits.MaxDepth <= 0 {
+		return nil, errors.New("static profiler limits must be positive except MaxFiles, which may be zero")
 	}
 	return &Profiler{limits: limits}, nil
 }
@@ -105,8 +105,7 @@ func (p *Profiler) profile(root string, cache *traversal.Cache) (ProfileFragment
 	defer r.Close()
 	var files []string
 	seen := 0
-	// Read one entry at a time: unlike WalkDir, a huge directory cannot force
-	// an unbounded allocation before the entry budget is checked.
+	// Read one entry at a time to avoid whole-directory allocation.
 	var walk func(string, int) error
 	walk = func(dir string, depth int) error {
 		f, err := r.Open(dir)
@@ -118,7 +117,7 @@ func (p *Profiler) profile(root string, cache *traversal.Cache) (ProfileFragment
 			entries, readErr := cache.ReadDir(dir, f, 1)
 			for _, entry := range entries {
 				seen++
-				if seen > p.limits.MaxFiles {
+				if p.limits.MaxFiles > 0 && seen > p.limits.MaxFiles {
 					return ErrTooManyFiles
 				}
 				name := path.Join(dir, entry.Name())

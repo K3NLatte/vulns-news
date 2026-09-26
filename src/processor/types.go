@@ -59,6 +59,21 @@ type ScreeningResult struct {
 	EvidenceIDs []string  `json:"evidence_ids"`
 }
 
+// screeningWireResult is model-only; saved results retain the original flat IDs.
+type screeningWireResult struct {
+	Relevance             Relevance `json:"relevance"`
+	Reason                string    `json:"reason"`
+	AdvisoryEvidenceIDs   []string  `json:"advisory_evidence_ids"`
+	RepositoryEvidenceIDs []string  `json:"repository_evidence_ids"`
+}
+
+func (result screeningWireResult) screeningResult() ScreeningResult {
+	ids := make([]string, 0, len(result.AdvisoryEvidenceIDs)+len(result.RepositoryEvidenceIDs))
+	ids = append(ids, result.AdvisoryEvidenceIDs...)
+	ids = append(ids, result.RepositoryEvidenceIDs...)
+	return ScreeningResult{Relevance: result.Relevance, Reason: result.Reason, EvidenceIDs: ids}
+}
+
 // SupportedClaim is generated interpretation linked to Go-owned evidence.
 type SupportedClaim struct {
 	Text        string   `json:"text"`
@@ -83,6 +98,9 @@ type Generation struct {
 	CompletionTokens int    `json:"completion_tokens"`
 	TotalDurationNS  int64  `json:"total_duration_ns"`
 	LoadDurationNS   int64  `json:"load_duration_ns"`
+	// Omitted for original single-call outputs to preserve saved checksums.
+	// Token and duration totals include the rejected attempt when retried.
+	CitationRetries int `json:"citation_retries,omitempty"`
 }
 
 // ScreeningOutput combines a validated screening result with generation data.

@@ -133,7 +133,10 @@ func TestMalformed(t *testing.T) {
 		{"Cargo.lock", "version = ["}, {"uv.lock", "version = 1\n[[package]]\nname = 12"}, {"poetry.lock", "not a lock"},
 		{"pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages: ["},
 		{"pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages: {}\n---\npackages: {}"},
-		{"pnpm-lock.yaml", "lockfileVersion: '5.4'"},
+		{"pnpm-lock.yaml", "lockfileVersion: '5.3'\npackages: {a: [}"},
+		{"pnpm-lock.yaml", "lockfileVersion: '5.3'\npackages: {}\npackages: {}"},
+		{"pnpm-lock.yaml", "lockfileVersion: '5.3'\npackages: {}\n---\npackages: {}"},
+		{"pnpm-lock.yaml", "packages: {}"},
 		{"pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages: {}\npackages: {}"},
 		{"yarn.lock", "__metadata: ["}, {"yarn.lock", "garbage"},
 		{"yarn.lock", "# yarn lockfile v1\n\"\":\n  version \"1.0.0\""},
@@ -153,9 +156,34 @@ func TestMalformed(t *testing.T) {
 		})
 	}
 }
+func TestUnsupportedPNPMDoesNotBlockOtherLocks(t *testing.T) {
+	root := t.TempDir()
+	legacy := "turbopack/tests/pnpm-lock.yaml"
+	put(t, root, legacy, "lockfileVersion: 5.3\npackages:\n  /old/1.0.0:\n    resolution: {integrity: sha512-old}\n")
+	put(t, root, "packages/app/pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages:\n  'next@14.0.0':\n    resolution: {integrity: sha512-new}\n")
+	got, err := Profile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components) != 1 || got.Components[0].PURL != "pkg:npm/next@14.0.0" {
+		t.Fatalf("components: %+v", got.Components)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], legacy+": unsupported pnpm lockfile version \"5.3\"") || !strings.Contains(got.Warnings[0], "incomplete") {
+		t.Fatalf("warnings: %v", got.Warnings)
+	}
+	if len(got.Ecosystems) != 1 || !reflect.DeepEqual(got.Ecosystems[0].Lockfiles, []string{"packages/app/pnpm-lock.yaml"}) {
+		t.Fatalf("ecosystems: %+v", got.Ecosystems)
+	}
+}
+
 func TestLimits(t *testing.T) {
 	if _, err := NewProfiler(Limits{}); err == nil {
 		t.Fatal("zero limits accepted")
+	}
+	invalid := DefaultLimits()
+	invalid.MaxFiles = -1
+	if _, err := NewProfiler(invalid); err == nil {
+		t.Fatal("negative entry limit accepted")
 	}
 	for _, kind := range []string{"size", "files", "depth", "components"} {
 		t.Run(kind, func(t *testing.T) {
@@ -187,6 +215,27 @@ func TestLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestUnlimitedEntriesByDefault(t *testing.T) {
+	if DefaultLimits().MaxFiles != 0 {
+		t.Fatal("default entry limit must be disabled")
+	}
+	root := t.TempDir()
+	put(t, root, "a", "")
+	put(t, root, "b", "")
+	put(t, root, "Cargo.lock", "version = 3\n")
+	p, err := NewProfiler(DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, profile := range []func(string) (Fragment, error){Profile, p.Profile} {
+		got, err := profile(root)
+		if err != nil || len(got.Ecosystems) != 1 {
+			t.Fatalf("unlimited entries: %+v, %v", got, err)
+		}
+	}
+}
+
 func TestSymlinksAndPruning(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

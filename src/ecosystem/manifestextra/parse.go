@@ -237,10 +237,7 @@ func (s *state) cargo(file string, d map[string]any) error {
 	if table(d["workspace"])["dependencies"] != nil {
 		s.warn(file, "workspace dependency templates not resolved")
 	}
-	if d["patch"] != nil || d["replace"] != nil {
-		// Overrides can also affect dependencies in other workspace members.
-		return fmt.Errorf("Cargo patch/replace overrides require resolution")
-	}
+
 	return nil
 }
 func exactCargo(v string) bool {
