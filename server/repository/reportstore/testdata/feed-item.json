@@ -1,0 +1,126 @@
+{
+  "repository_id": "example/payment-api",
+  "repository_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "cve_id": "CVE-2026-1234",
+  "cve_revision": "2026-09-24T12:00:00Z",
+  "published_at": "2026-09-24T10:00:00Z",
+  "severity": "HIGH",
+  "cvss": 8.1,
+  "matches": [
+    {
+      "repository_item_id": "component-npm-001",
+      "affected_target_id": "target-npm-001",
+      "reason": "ecosystem_package_exact",
+      "version_status": "affected",
+      "installed_version": "1.3.0"
+    }
+  ],
+  "relevance": "related",
+  "status": "analyzed",
+  "screening_reason": "保存確認用の架空データ。対象パッケージとバージョンが一致しています。",
+  "summary": {
+    "text": "サンプルの依存関係に @example/archive 1.3.0 が含まれています。",
+    "evidence_ids": [
+      "EVD-NVD-001",
+      "EVD-REPO-DEP-001"
+    ]
+  },
+  "repository_impact": {
+    "text": "サンプル上では対象バージョンを使用していますが、脆弱な機能を呼び出しているかは未確認です。",
+    "evidence_ids": [
+      "EVD-REPO-DEP-001"
+    ]
+  },
+  "missing_information": [
+    "脆弱な機能の利用箇所",
+    "実行時の設定"
+  ],
+  "recommended_actions": [
+    "利用箇所を確認する",
+    "サンプルの修正版 1.4.0 への更新を検討する"
+  ],
+  "evidence": [
+    {
+      "id": "EVD-NVD-001",
+      "kind": "nvd",
+      "source": "架空のNVD入力（保存確認専用）",
+      "content": "この例では @example/archive の 1.4.0 未満が対象です。実在する脆弱性の説明ではありません。"
+    },
+    {
+      "id": "EVD-REPO-DEP-001",
+      "kind": "repository_dependency",
+      "source": "pnpm-lock.yaml",
+      "content": "架空リポジトリの依存関係: @example/archive 1.3.0"
+    }
+  ],
+  "generation": [],
+  "applicability": {
+    "repository_id": "example/payment-api",
+    "repository_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "vulnerability_id": "CVE-2026-1234",
+    "vulnerability_revision": "2026-09-24T12:00:00Z",
+    "package_presence": {
+      "level": 1,
+      "status": "confirmed",
+      "conditional_on_package_identity": false,
+      "sources": [
+        {
+          "repository_item_id": "component-npm-001",
+          "affected_target_id": "target-npm-001",
+          "source_path": "pnpm-lock.yaml",
+          "match_index": 0
+        }
+      ],
+      "evidence_ids": [],
+      "missing_reasons": []
+    },
+    "affected_version": {
+      "level": 2,
+      "status": "confirmed",
+      "conditional_on_package_identity": false,
+      "sources": [
+        {
+          "repository_item_id": "component-npm-001",
+          "affected_target_id": "target-npm-001",
+          "source_path": "pnpm-lock.yaml",
+          "match_index": 0
+        }
+      ],
+      "evidence_ids": [],
+      "missing_reasons": []
+    },
+    "feature_usage": {
+      "level": 3,
+      "status": "unknown",
+      "conditional_on_package_identity": false,
+      "sources": [],
+      "evidence_ids": [],
+      "missing_reasons": [
+        "利用箇所が未確認"
+      ]
+    },
+    "code_reachability": {
+      "level": 4,
+      "status": "unknown",
+      "conditional_on_package_identity": false,
+      "sources": [],
+      "evidence_ids": [],
+      "missing_reasons": [
+        "実行経路が未確認"
+      ]
+    },
+    "attack_conditions": {
+      "level": 5,
+      "status": "unknown",
+      "conditional_on_package_identity": false,
+      "sources": [],
+      "evidence_ids": [],
+      "missing_reasons": [
+        "実行時の設定が未確認"
+      ]
+    },
+    "matches": []
+  },
+  "vulnerability_id": "CVE-2026-1234",
+  "vulnerability_revision": "2026-09-24T12:00:00Z"
+}
