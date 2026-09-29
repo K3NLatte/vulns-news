@@ -30,7 +30,7 @@ function date(value: unknown): string {
 function list<T>(value: unknown, max: number, parse: (item: unknown) => T): T[] {
   return Array.isArray(value) && value.length <= max ? value.map(parse) : invalid()
 }
-function parseItem(value: unknown): FeedItem {
+export function parseFeedItem(value: unknown): FeedItem {
   const item = record(value)
   const analysis = record(item.analysis)
   const id = text(item.id, 200)
@@ -71,7 +71,7 @@ function parseItem(value: unknown): FeedItem {
 /** Reject a malformed page before sorting or rendering, rather than guessing missing facts. */
 export function parseFeedResult(value: unknown): FeedResult {
   const data = record(value)
-  const items = list(data.items, 1000, parseItem)
+  const items = list(data.items, 1000, parseFeedItem)
   const total = count(data.total)
   const matchedTotal = count(data.matchedTotal)
   if (new Set(items.map(item => item.id)).size !== items.length || matchedTotal !== items.length || total < matchedTotal) return invalid()

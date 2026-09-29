@@ -1,27 +1,49 @@
 # フロントエンド
 
-Vue + TypeScriptで、画面と操作を検討しながら、バックエンド接続後も育てていくフロントエンドの実装基盤です。採用未定の機能も含めて完成形を試せます。
-
-現在の記事・製品・解析・スコアは架空データで、API、クローラー、LLM、認証サーバーには接続していません。接続時に置き換える処理と未合意の要件は、この文書と[連携メモ](../docs/frontend-integration.md)で管理します。
+通常起動は既存Go APIに接続します。現在のAPIは固定データを返すモックです。クローラー・LLM・SQLite・認証への接続は今回の変更に含みません。
 
 ## 起動
 
-WSL Ubuntu-24.04でリポジトリのルートへ移動して実行します。
+リポジトリ直下でAPIを起動します（Nixを使う場合は先に `nix develop .#`）。
 
-```bash
-nix develop .#
+```sh
+go run ./server/cmd/api
+```
+
+別のターミナルでフロントを起動します。
+
+```sh
 cd frontend
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-- フル版: http://localhost:5173/
-- MVP版: http://localhost:5173/?view=mvp
+http://localhost:5173/ を開きます。Viteは `/api` を `http://127.0.0.1:8080` へ転送します。GoとViteを同じ環境で起動してください。WindowsとWSLでnode_modulesを共用しないでください。
 
-同じコンポーネントと取得処理を使い、開発時のMVP表示では機能を絞って表示します。開発サーバーはWindows側の保存を検知するためポーリングを使います。
+配布用ビルドは `pnpm build`、確認は `pnpm preview` です。別のWebサーバーでdistを公開する場合は、同じオリジンの `/api` からGo APIへ転送する設定が必要です。
 
-この手順では依存関係のインストール・起動・テストをWSL側でそろえます。Windows側のpnpmとWSL側の`node_modules`は混在させないでください。OS依存のバイナリが含まれるため、Windowsでも作業する場合は別のチェックアウトを用意し、その環境で依存関係をインストールします。`nix develop .#`は、`path:.`で未追跡の`node_modules`までコピーする待ち時間を避ける指定です。
+## API画面の確認
 
+1. 一般フィードの検索・深刻度・並び替えと記事詳細を確認します。
+2. 「リポジトリに関連」で公開GitHub URLを入力し「読み込む」を押します。
+3. ジョブの状態、関連度順、未確定の記事を確認します。
+4. 記事をページで開き、再読み込み・一覧への復帰・共有を確認します。
+
+現在のAPIでは一般12件、関連6件（分析済み5件・未確定1件）、登録IDと完了ジョブは固定値です。入力リポジトリの実取得は行いません。API停止時にローカル記事へ切り替えることはありません。
+
+ログイン・保存・コメント・追加解析など未接続の機能は、次のデザイン確認画面に残しています。API契約と待機・再試行・保存の扱いは [連携メモ](../docs/frontend-integration.md) を参照してください。
+
+## デザイン確認画面
+
+APIなしで従来の画面案を開く場合だけ、開発サーバーを次の設定で起動します。
+
+```sh
+VITE_FEED_SOURCE=local pnpm dev
+```
+
+PowerShellでは `$env:VITE_FEED_SOURCE = 'local'` を設定してから `pnpm dev` を実行します。通常表示へ戻すときは環境変数を解除してサーバーを再起動します。この指定やURLのシナリオ指定は配布用ビルドに適用されません。
+
+フル版は `/`、機能を絞った画面案は `/?view=mvp` です。以下はこの開発用画面の説明です。
 ## 画面と操作
 
 | 機能 | フル版 | MVP版 |
@@ -44,7 +66,11 @@ pnpm dev
 
 ## 再現用のデータ
 
-一般フィードは12件です。リポジトリの owner/name を正規化し、文字コードの合計を3で割った余りで固定プロフィールを選びます。リポジトリの実在確認、公開状態確認、依存関係の取得はしません。
+通常のAPI表示では、サーバーの `server/mockdata` にある一般フィード12件・関連フィード6件を使います。
+
+従来の画面確認用データをAPIなしで使う場合は、開発サーバーを `VITE_FEED_SOURCE=local pnpm dev` で起動します（PowerShellでは先に `$env:VITE_FEED_SOURCE = 'local'` を設定）。これは開発時だけの指定で、配布用ビルドはAPIを使用します。
+
+このローカル表示ではリポジトリの owner/name から固定プロフィールを選びます。リポジトリの実在確認、公開状態確認、依存関係の取得はしません。
 
 - https://github.com/example/frontend : Web系の6件
 - https://github.com/example/backend : API系の5件
@@ -69,6 +95,8 @@ CWE等の外部リンクは一般的な技術資料です。架空の記事を�
 ## 状態確認
 
 開発サーバーでのみ、URLで取得状態を指定できます。`pnpm build` の成果物では `scenario`・`analysis`・`view` を無視し、通常のフル版を表示します。
+
+`scenario` または `analysis` を指定した開発プレビューは、状態を再現するためにブラウザー内のモックを使用します。API接続を確認する際はこれらを指定しません。
 
 - ?scenario=loading
 - ?scenario=empty
@@ -99,6 +127,7 @@ MVPでは ?view=mvp&scenario=error のように組み合わせられます。エ
 - App.vue: 画面間の接続と選択状態
 - composables/useNavigation.ts: ハッシュによるページ移動
 - composables/useFeed.ts / services/feed.ts: 非同期取得とキャンセル
+- services/feedApi.ts / composables/useFeedDetail.ts: モックAPIへのfetch、登録・ジョブ確認・詳細取得
 - composables/useWorkspace.ts / services/workspace.ts: リポジトリ、プロフィール、保存、コメント、対応状況
 - composables/useReportLibrary.ts / services/reports.ts / services/reportSession.ts: 解析依頼、追跡、履歴と保存した入力からの記事復元
 - composables/useFeedPanes.ts: 一覧の文書スクロールと詳細の高さ・スクロール方式
@@ -118,6 +147,10 @@ pnpm build
 pnpm exec playwright install --with-deps chromium firefox
 pnpm test:e2e
 ```
+
+GoのモックAPIを8080番ポートで起動した状態で、`pnpm test:e2e:api` を実行すると、API取得・登録・解析状況・詳細表示・通信エラーの再試行をブラウザーで確認できます。フロントは4174番ポートで自動起動します。インストール済みChromeを使う場合は `PLAYWRIGHT_CHANNEL=chrome` を指定できます。
+
+通常の `test:e2e` は従来の画面確認用にローカルデータで実行します。配布用ビルドを対象とする `test:e2e:production` はAPIも起動して実行してください。
 
 `typecheck`はアプリとE2Eコードの型を確認します。`test`はVitest、`build`は型チェックと配布用ビルドです。Playwrightのブラウザー導入は初回とバージョン変更時に必要です。Linuxのシステム依存関係を導入する`--with-deps`は管理者権限を要求する場合があります。
 

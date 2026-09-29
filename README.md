@@ -17,7 +17,7 @@ pnpm --version
 sqlite3 --version
 ```
 
-## フロントエンドのローカルモック
+## フロントエンド
 
 Nix開発シェルに入った後、次を実行します。
 
@@ -29,10 +29,10 @@ pnpm dev
 
 ブラウザで <http://localhost:5173> を開いてください。WindowsではWSL側のターミナルで実行します。
 
-一般フィード、リポジトリ向け表示、検索、重要度フィルター、並び替え、記事詳細を確認できます。記事・依存関係・AI分析はすべて架空サンプルで、APIや実際の解析には接続していません。
+通常表示はGoのモックAPIに接続します。先に別ターミナルでリポジトリ直下から `go run ./server/cmd/api` を実行してください。一般フィード、リポジトリ向け表示、検索、重要度フィルター、並び替え、記事詳細を確認できます。記事・依存関係・AI分析はすべて架空サンプルで、実際の解析には接続していません。
 
 - [起動手順・画面の確認方法](frontend/README.md)
-- [バックエンド接続に向けた境界と未決定事項](docs/frontend-integration.md)
+- [API接続と対応範囲](docs/frontend-integration.md)
 - [製品の範囲](PRODUCT.md)
 
 Nix の設定で `nix-command` と `flakes` が無効の場合は、`nix --extra-experimental-features 'nix-command flakes' develop path:.` を使用してください。

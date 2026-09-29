@@ -4,7 +4,9 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: {
-    // Windows editors do not emit all filesystem events across the WSL mount.
+    proxy: { '/api': 'http://127.0.0.1:8080' },
+    // Windows側の保存をWSLのマウント越しでも検知する。
     watch: { usePolling: true, interval: 300 },
   },
+  preview: { proxy: { '/api': 'http://127.0.0.1:8080' } },
 })
