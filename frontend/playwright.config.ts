@@ -24,10 +24,10 @@ export default defineConfig({
     { name: 'firefox', use: { ...devices['Desktop Firefox'], viewport: { width: 1440, height: 1000 } } },
   ],
   webServer: externalServer ? undefined : {
-    // The existing design suite exercises its standalone local scenarios.
+    // 既存画面のテストはAPI接続と分け、開発用デザインデータで実行する。
     env: { VITE_FEED_SOURCE: 'local' },
     command: 'pnpm dev --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 })

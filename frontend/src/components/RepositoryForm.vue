@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import { ArrowRight } from '@lucide/vue'
 import { parseRepositoryUrl } from '../services/feed'
 
-const props = defineProps<{ repository: string }>()
+const props = withDefaults(defineProps<{ repository: string; busy?: boolean }>(), { busy: false })
 const emit = defineEmits<{ submit: [url: string, label: string] }>()
 const input = ref(props.repository)
 const urlInput = ref<HTMLInputElement | null>(null)
@@ -11,6 +11,7 @@ const error = ref('')
 watch(() => props.repository, value => { input.value = value; error.value = '' })
 
 function submit() {
+  if (props.busy) return
   const result = parseRepositoryUrl(input.value)
   if (!result.ok) {
     error.value = result.message
@@ -32,7 +33,7 @@ function submit() {
         :aria-describedby="error ? 'repository-error' : undefined"
         @input="error = ''"
       />
-      <button class="primary-button" type="submit">読み込む<ArrowRight :size="18" aria-hidden="true" /></button>
+      <button class="primary-button" type="submit" :aria-disabled="busy">{{ busy ? '受付中' : '読み込む' }}<ArrowRight :size="18" aria-hidden="true" /></button>
     </div>
     <p v-if="error" id="repository-error" class="input-error" role="alert">{{ error }}</p>
   </form>

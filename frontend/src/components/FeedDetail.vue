@@ -40,6 +40,8 @@ const props = withDefaults(defineProps<{
   repositoryLabel?: string
   expanded?: boolean
   fullFeatures?: boolean
+  showProofOfConcept?: boolean
+  showSharing?: boolean
   canReview?: boolean
   saved?: boolean
   comments?: FeedComment[]
@@ -50,6 +52,8 @@ const props = withDefaults(defineProps<{
   repositoryLabel: '',
   expanded: false,
   fullFeatures: true,
+  showProofOfConcept: false,
+  showSharing: false,
   canReview: true,
   saved: false,
   comments: () => [],
@@ -156,7 +160,7 @@ function updateReviewStatus(event: Event) {
         記事の詳細
       </span>
       <div class="detail-actions">
-        <ShareArticle v-if="fullFeatures" :article-id="item.id" :title="item.title" />
+        <ShareArticle v-if="fullFeatures || showSharing" :article-id="item.id" :title="item.title" />
         <button
           v-if="fullFeatures"
           class="text-button save-button"
@@ -323,7 +327,7 @@ function updateReviewStatus(event: Event) {
         </details>
       </section>
 
-      <details v-if="fullFeatures && !pending && item.proofOfConcept" class="detail-section poc-section">
+      <details v-if="(fullFeatures || showProofOfConcept) && !pending && item.proofOfConcept" class="detail-section poc-section">
         <summary>PoC</summary>
         <div class="poc-content">
           <h3 v-if="item.proofOfConcept.conditions.length">確認条件</h3>

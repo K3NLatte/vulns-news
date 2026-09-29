@@ -2,7 +2,9 @@ import { defineConfig } from '@playwright/test'
 import base from './playwright.config'
 
 const externalServer = process.env.PLAYWRIGHT_PRODUCTION_URL
-export default defineConfig(base, {
+// 開発サーバーの設定は継承しない。defineConfigはwebServerを追加扱いにするため。
+const { webServer: _developmentServer, ...shared } = base
+export default defineConfig(shared, {
   testIgnore: [],
   testMatch: '**/*.production.spec.ts',
   use: { baseURL: externalServer ?? 'http://127.0.0.1:4175' },

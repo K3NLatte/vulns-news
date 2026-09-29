@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { CircleAlert, CircleCheck, Clock3, LoaderCircle, RotateCw } from '@lucide/vue'
 import type { AnalysisSnapshot, AnalysisStage } from '../types/analysis'
 
-const props = defineProps<{ snapshot: AnalysisSnapshot }>()
+const props = withDefaults(defineProps<{ snapshot: AnalysisSnapshot; allowRetry?: boolean }>(), { allowRetry: true })
 const emit = defineEmits<{ retry: [] }>()
 
 const titles: Record<AnalysisStage, string> = {
@@ -103,7 +103,7 @@ const message = computed(() => {
       </dl>
     </div>
     <button
-      v-if="snapshot.stage === 'failed'"
+      v-if="snapshot.stage === 'failed' && allowRetry"
       class="secondary-button analysis-status-retry"
       type="button"
       @click="emit('retry')"

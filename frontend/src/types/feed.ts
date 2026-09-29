@@ -66,6 +66,8 @@ export interface FeedResult {
 }
 
 export interface FeedOptions {
+  /** 処理中でも取得できたフィードを画面へ反映する。 */
+  onProgress?: (result: FeedResult) => void
   signal?: AbortSignal
   scenario?: 'ready' | 'empty' | 'error'
   delayMs?: number

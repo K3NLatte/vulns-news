@@ -9,15 +9,17 @@ export function useFeedDetail(target: Ref<DetailTarget | null>, load: DetailLoad
   const loading = ref(false)
   const error = ref('')
   let controller: AbortController | undefined
+  let disposed = false
 
   async function reload() {
+    if (disposed) return
     controller?.abort()
     const request = new AbortController()
     controller = request
     item.value = null
     error.value = ''
-    const current = target.value
-    if (!current) { loading.value = false; return }
+    if (!target.value) { loading.value = false; return }
+    const current = { ...target.value }
     loading.value = true
     try {
       const result = await load(current, request.signal)
@@ -28,8 +30,12 @@ export function useFeedDetail(target: Ref<DetailTarget | null>, load: DetailLoad
       if (!request.signal.aborted) loading.value = false
     }
   }
-  // Clear the previous article before the next render, including repository switches.
-  watch(target, reload, { immediate: true, flush: 'sync' })
-  onScopeDispose(() => controller?.abort())
+  // 同じ記事のオブジェクト再生成では詳細を消さず、記事やリポジトリの変更時だけ読み直す。
+  watch([() => target.value?.id ?? null, () => target.value?.repositoryUrl ?? null], reload, { immediate: true, flush: 'sync' })
+  onScopeDispose(() => {
+    disposed = true
+    controller?.abort()
+    loading.value = false
+  })
   return { item, loading, error, reload }
 }
