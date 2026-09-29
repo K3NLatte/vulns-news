@@ -2,6 +2,8 @@
 
 フロントエンドとの接続確認用に、`mockdata/` のJSONをHTTPで返します。
 
+解析結果をSQLiteへ保存するGoのCRUD処理は、[reportstoreの使い方](repository/reportstore/README.md)を参照してください。既存HTTPルートはまだこの保存処理を呼び出していません。
+
 ## フォルダ構成
 
 ```text
