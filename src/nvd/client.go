@@ -15,12 +15,6 @@ const (
 	pageSize = 2000
 )
 
-// CVE contains a CVE identifier and its description.
-type CVE struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
-}
-
 // Client retrieves CVEs from the NVD API without an API key.
 type Client struct {
 	httpClient *http.Client
@@ -40,19 +34,13 @@ func NewClient() *Client {
 type apiResponse struct {
 	TotalResults    int `json:"totalResults"`
 	Vulnerabilities []struct {
-		CVE struct {
-			ID           string `json:"id"`
-			Descriptions []struct {
-				Lang  string `json:"lang"`
-				Value string `json:"value"`
-			} `json:"descriptions"`
-		} `json:"cve"`
+		CVE apiCVE `json:"cve"`
 	} `json:"vulnerabilities"`
 }
 
-// Fetch returns count CVEs in newest-first published order. It prefers English
-// descriptions and returns an error if count exceeds NVD's total results.
-func (c *Client) Fetch(ctx context.Context, count int) ([]CVE, error) {
+// Fetch returns count normalized CVEs in newest-first published order. It
+// returns an error if count exceeds NVD's total results.
+func (c *Client) Fetch(ctx context.Context, count int) ([]NormalizedVulnerability, error) {
 	if count <= 0 {
 		return nil, errors.New("件数は1以上を指定してください")
 	}
@@ -66,7 +54,7 @@ func (c *Client) Fetch(ctx context.Context, count int) ([]CVE, error) {
 		return nil, fmt.Errorf("指定件数 %d は取得可能なCVE %d 件を超えています", count, first.TotalResults)
 	}
 
-	records := make([]CVE, 0, min(count, pageSize))
+	records := make([]NormalizedVulnerability, 0, min(count, pageSize))
 	for len(records) < count {
 		if c.interval > 0 {
 			timer := time.NewTimer(c.interval)
@@ -90,16 +78,9 @@ func (c *Client) Fetch(ctx context.Context, count int) ([]CVE, error) {
 			return nil, fmt.Errorf("NVD APIの取得件数が要求件数と異なります: %d/%d", len(page.Vulnerabilities), size)
 		}
 		for i := len(page.Vulnerabilities) - 1; i >= 0; i-- {
-			item := page.Vulnerabilities[i]
-			entry := CVE{ID: item.CVE.ID}
-			if len(item.CVE.Descriptions) > 0 {
-				entry.Description = item.CVE.Descriptions[0].Value
-			}
-			for _, description := range item.CVE.Descriptions {
-				if description.Lang == "en" {
-					entry.Description = description.Value
-					break
-				}
+			entry, err := normalize(page.Vulnerabilities[i].CVE)
+			if err != nil {
+				return nil, err
 			}
 			records = append(records, entry)
 		}
