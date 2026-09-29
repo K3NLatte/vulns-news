@@ -280,6 +280,34 @@ test('未登録のリポジトリ記事はURLを提示し、明示的な送信�
   expect(requests.filter(path => path === 'POST /api/repositories')).toHaveLength(1)
 })
 
+test('未登録記事のスキップリンクから本文へ移動し、次のTabでリポジトリ入力へ進む', async ({ page }) => {
+  const requests = recordRequests(page)
+  await page.goto(`/#/article/demo-001?repository=${encodeURIComponent(repository)}`)
+  await expect(page.getByLabel('公開リポジトリ', { exact: true })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: '本文に移動', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('main')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByLabel('公開リポジトリ', { exact: true })).toBeFocused()
+  expect(requests).toEqual([])
+})
+
+for (const personalized of [false, true]) {
+  test(`${personalized ? 'リポジトリ別' : '通常'}の記事ページはPoCの開閉後も見出し階層を保つ`, async ({ page }) => {
+    await page.goto(personalized
+      ? `/#/article/demo-001?repository=${encodeURIComponent(repository)}` : '/#/article/demo-001')
+    if (personalized) await registerRepository(page)
+    await expect(page.locator('h1#detail-title')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '対応の確認ポイント', level: 2, exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '参照情報', level: 2, exact: true })).toBeVisible()
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+    await page.locator('.poc-section summary').click()
+    await expect(page.locator('.poc-section pre code')).toBeVisible()
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+  })
+}
+
 test('HTTPエラー本文を表示せず、一覧と詳細をそれぞれ再試行する', async ({ page }) => {
   let fail = true
   const privateMessage = 'SECRET_INTERNAL_PATH <img src=x onerror=alert(1)>'

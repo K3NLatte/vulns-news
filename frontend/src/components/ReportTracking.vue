@@ -5,7 +5,7 @@ import { RefreshCw, ChevronDown } from '@lucide/vue'
 import { isTrackingActive } from '../services/reports'
 import type { ReportLifecycle } from '../types/reports'
 import type { InvestigationJob } from '../types/investigation'
-const props = defineProps<{ lifecycle: ReportLifecycle; now: string; job?: InvestigationJob }>()
+const props = withDefaults(defineProps<{ lifecycle: ReportLifecycle; now: string; job?: InvestigationJob; headingTag?: 'h2' | 'h3' }>(), { headingTag: 'h3' })
 defineEmits<{ reanalyze: []; renew: [] }>()
 const tracking = computed(() => isTrackingActive(props.lifecycle, props.now))
 const updateStatus = ref('')
@@ -23,7 +23,7 @@ function date(value: string | null) {
 <template>
   <section class="report-tracking" aria-label="レポートの更新と追跡">
     <div class="tracking-heading">
-      <h3>レポートの更新</h3>
+      <component :is="headingTag" class="detail-section-heading">レポートの更新</component>
       <span>{{ tracking ? '自動追跡中' : '追跡期間終了' }}</span>
     </div>
     <dl>

@@ -87,11 +87,11 @@ async function removeComment(comment: FeedComment) {
 <template>
   <section class="comment-thread detail-section" aria-labelledby="comments-heading">
     <div class="section-heading">
-      <h3 id="comments-heading" tabindex="-1">
+      <h2 id="comments-heading" class="detail-section-heading" tabindex="-1">
         <MessageSquare :size="18" aria-hidden="true" />
         コメント
         <span class="comment-total">{{ comments.length }}件</span>
-      </h3>
+      </h2>
     </div>
 
     <p v-if="!comments.length" class="comments-empty">コメントはまだありません。</p>

@@ -188,6 +188,7 @@ async function setRepository(url: string) {
   } finally { if (!controller.signal.aborted) registrationBusy.value = false }
 }
 function resetFilters() { search.value = ''; settledSearch.value = ''; severity.value = 'all'; analysisFilter.value = 'all' }
+function focusMain() { document.getElementById('main-content')?.focus() }
 function focusRepositoryInput() { document.getElementById('repository-url')?.focus() }
 function selectItem(id: string) {
   const unchanged = selected.value?.id === id
@@ -204,7 +205,7 @@ onScopeDispose(() => { clearTimeout(searchTimer); registrationController?.abort(
 </script>
 
 <template>
-  <a class="skip-link" href="#main-content" @click.prevent="workspaceElement?.focus()">本文に移動</a>
+  <a class="skip-link" href="#main-content" @click.prevent="focusMain">本文に移動</a>
   <AppHeader :user="null" :full-features="false" :page="route.page" :saved-count="0" />
   <main id="main-content" class="main-content" :class="{ 'is-feed': listPage }" tabindex="-1">
     <div v-if="listPage" ref="controlsElement" class="feed-controls">
