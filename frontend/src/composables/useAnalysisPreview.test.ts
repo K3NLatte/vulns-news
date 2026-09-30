@@ -2,9 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { ref } from 'vue'
 import { mockFeed } from '../mocks/feed'
 import type { FeedItem } from '../types/feed'
+import type { AnalysisSnapshot } from '../types/analysis'
 import { useAnalysisPreview } from './useAnalysisPreview'
 
 describe('useAnalysisPreview', () => {
+  it('uses server progress without applying the local partial-result ID fixtures', () => {
+    const source = ref<FeedItem[]>([{ ...structuredClone(mockFeed[0]!), repositoryAnalysis: 'analyzed' }])
+    const live = ref<AnalysisSnapshot | null>({ stage: 'analyzing', processed: 1, total: 6, hasAvailableResults: true })
+    const analysis = useAnalysisPreview(source, ref(true), null, live)
+    expect(analysis.stage.value).toBe('analyzing')
+    expect(analysis.snapshot.value).toEqual(live.value)
+    expect(analysis.items.value.map(item => item.id)).toEqual(['demo-001'])
+    live.value = { stage: 'completed', processed: 6, total: 6, confirmedCount: 5, pendingCount: 1 }
+    expect(analysis.stage.value).toBe('completed')
+    expect(analysis.snapshot.value.confirmedCount).toBe(5)
+  })
   it('keeps an available article accessible when searching, reordering, and opening its full feed', () => {
     for (const stage of ['analyzing', 'failed']) {
       const articles = structuredClone(mockFeed)

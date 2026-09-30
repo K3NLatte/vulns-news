@@ -1,27 +1,51 @@
 # フロントエンド
 
-Vue + TypeScriptで、画面と操作を検討しながら、バックエンド接続後も育てていくフロントエンドの実装基盤です。採用未定の機能も含めて完成形を試せます。
-
-現在の記事・製品・解析・スコアは架空データで、API、クローラー、LLM、認証サーバーには接続していません。接続時に置き換える処理と未合意の要件は、この文書と[連携メモ](../docs/frontend-integration.md)で管理します。
+通常起動は実スキャン・既存LLM解析・JSON永続化につながるGo APIに接続します。保存済み解析を取り込めば、LLMなしでも一覧・詳細・リポジトリ別表示を確認できます。認証・SQLite連携は未実装です。起動・取り込み・制限は [全体結合ガイド](../docs/e2e-integration.md) を参照してください。
 
 ## 起動
 
-WSL Ubuntu-24.04でリポジトリのルートへ移動して実行します。
+リポジトリ直下でAPIを起動します（Nixを使う場合は先に `nix develop .#`）。
 
-```bash
-nix develop .#
+```sh
+go run ./cmd/news-server -model=""
+```
+
+別のターミナルでフロントを起動します。
+
+```sh
 cd frontend
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-- フル版: http://localhost:5173/
-- MVP版: http://localhost:5173/?view=mvp
+http://127.0.0.1:5173/ を開きます。Viteは `/api` を `http://127.0.0.1:8080` へ転送します。GoとViteを同じ環境で起動してください。WindowsとWSLでnode_modulesを共用しないでください。
 
-同じコンポーネントと取得処理を使い、開発時のMVP表示では機能を絞って表示します。開発サーバーはWindows側の保存を検知するためポーリングを使います。
+正式なAPIは `cmd/news-server` です。旧 `server/cmd/api` はlegacyモックとして保持していますが、現行 `ApiApp` の起動時に必要な `GET /api/analyses` が405となるため、現行画面の接続先にはしません。`-model=""` では登録フォームが表示されないのが正常で、保存済み解析から閲覧します。
 
-この手順では依存関係のインストール・起動・テストをWSL側でそろえます。Windows側のpnpmとWSL側の`node_modules`は混在させないでください。OS依存のバイナリが含まれるため、Windowsでも作業する場合は別のチェックアウトを用意し、その環境で依存関係をインストールします。`nix develop .#`は、`path:.`で未追跡の`node_modules`までコピーする待ち時間を避ける指定です。
+配布用ビルドは `pnpm build`、確認は `pnpm preview` です。別のWebサーバーでdistを公開する場合は、同じオリジンの `/api` からGo APIへ転送する設定が必要です。
 
+## API画面の確認
+
+1. 一般フィードの検索・深刻度・並び替えと記事詳細を確認します。
+2. 初期画面の「保存済み解析結果」から「結果を開く」を押します。URL入力・登録POSTは不要です。
+3. 保存結果の解析状態、関連度順、未確定の記事、カバレッジ警告を確認します。
+4. 記事をページで開き、再読み込み・一覧への復帰・共有を確認します。
+
+通常APIでは保存済みの実解析データを表示します。新しいスキャンを有効にする場合はサーバーへ `-model` を指定してください。未知の重要度・悪用状況・確度は未評価のまま表示し、API停止時にローカル記事へ切り替えることはありません。
+
+ログイン・保存・コメント・追加解析など未接続の機能は、次のデザイン確認画面に残しています。API契約と待機・再試行・保存の扱いは [全体結合ガイド](../docs/e2e-integration.md) を参照してください。
+
+## デザイン確認画面
+
+APIなしで従来の画面案を開く場合だけ、開発サーバーを次の設定で起動します。
+
+```sh
+VITE_FEED_SOURCE=local pnpm dev
+```
+
+PowerShellでは `$env:VITE_FEED_SOURCE = 'local'` を設定してから `pnpm dev` を実行します。通常表示へ戻すときは環境変数を解除してサーバーを再起動します。この指定やURLのシナリオ指定は配布用ビルドに適用されません。
+
+フル版は `/`、機能を絞った画面案は `/?view=mvp` です。以下はこの開発用画面の説明です。
 ## 画面と操作
 
 | 機能 | フル版 | MVP版 |
@@ -44,7 +68,11 @@ pnpm dev
 
 ## 再現用のデータ
 
-一般フィードは12件です。リポジトリの owner/name を正規化し、文字コードの合計を3で割った余りで固定プロフィールを選びます。リポジトリの実在確認、公開状態確認、依存関係の取得はしません。
+通常のAPI表示は `.local/news` の保存結果を使用します。`server/mockdata` はPR由来の既存単体テスト向けfixtureで、本番APIには接続しません。
+
+従来の画面確認用データをAPIなしで使う場合は、開発サーバーを `VITE_FEED_SOURCE=local pnpm dev` で起動します（PowerShellでは先に `$env:VITE_FEED_SOURCE = 'local'` を設定）。これは開発時だけの指定で、配布用ビルドはAPIを使用します。
+
+このローカル表示ではリポジトリの owner/name から固定プロフィールを選びます。リポジトリの実在確認、公開状態確認、依存関係の取得はしません。
 
 - https://github.com/example/frontend : Web系の6件
 - https://github.com/example/backend : API系の5件
@@ -69,6 +97,8 @@ CWE等の外部リンクは一般的な技術資料です。架空の記事を�
 ## 状態確認
 
 開発サーバーでのみ、URLで取得状態を指定できます。`pnpm build` の成果物では `scenario`・`analysis`・`view` を無視し、通常のフル版を表示します。
+
+`scenario` または `analysis` を指定した開発プレビューは、状態を再現するためにブラウザー内のモックを使用します。API接続を確認する際はこれらを指定しません。
 
 - ?scenario=loading
 - ?scenario=empty
@@ -99,13 +129,14 @@ MVPでは ?view=mvp&scenario=error のように組み合わせられます。エ
 - App.vue: 画面間の接続と選択状態
 - composables/useNavigation.ts: ハッシュによるページ移動
 - composables/useFeed.ts / services/feed.ts: 非同期取得とキャンセル
+- services/feedApi.ts / composables/useFeedDetail.ts: 実APIへのfetch、登録・ジョブ確認・ページ取得・詳細取得
 - composables/useWorkspace.ts / services/workspace.ts: リポジトリ、プロフィール、保存、コメント、対応状況
 - composables/useReportLibrary.ts / services/reports.ts / services/reportSession.ts: 解析依頼、追跡、履歴と保存した入力からの記事復元
 - composables/useFeedPanes.ts: 一覧の文書スクロールと詳細の高さ・スクロール方式
 - components/: 表示とユーザー操作
 - mocks/feed.ts: 固定データ
 
-API連携の確認事項は [連携メモ](../docs/frontend-integration.md)、文字サイズと色は [DESIGN.md](../DESIGN.md)、確認する順番は [レビュー案内](../docs/frontend-review.md) を参照してください。
+実API連携の確認事項は [全体結合ガイド](../docs/e2e-integration.md) を参照してください。
 
 ## 検証
 
@@ -119,19 +150,32 @@ pnpm exec playwright install --with-deps chromium firefox
 pnpm test:e2e
 ```
 
+`test:e2e` は本番ビルド後、Playwrightが現行 `cmd/news-server` を4176番で自動起動・終了します。既存の `cmd/repo-analyze/testdata/pre-citation-fix` を一時領域へimportし、サーバーを再起動して保存結果を読みます。fixtureは1件の有効な部分結果を含む未完了解析で、完了・安全と偽装しません。`.local/news` は使わず、終了時に一時領域を削除します。外部LLM・GitHub・OSVへの通信はありません。
+
+| コマンド | 対象 |
+| --- | --- |
+| `pnpm test:e2e` | 現行APIと本番UI（Chromium / Firefox） |
+| `pnpm test:e2e:api` | 上記の保存結果・検索・詳細・モバイル・カタログ再取得 |
+| `pnpm test:e2e:production` | 上記のURLモック指定の無効化・API障害表示 |
+| `pnpm test:e2e:design` | 従来の開発用ローカル画面・アクセシビリティ検証 |
+| `pnpm test:e2e:legacy` | 旧12件モックAPI契約の歴史的スイート（現行UI非互換、標準検証外） |
+| `pnpm test:e2e:live` | 別途取り込んだNext.js実解析582件専用のopt-in検証 |
+
+legacyスイートは `feed.legacy.spec.ts` として保持しています。旧モックAPIの起動だけでは現行UIのカタログ取得・登録導線を満たさず、成功する現行テストとしては扱いません。旧API・SQLite実装は変更しません。実データ専用liveスイートの前提は [全体結合ガイド](../docs/e2e-integration.md#非LLM検証) を参照してください。
+
 `typecheck`はアプリとE2Eコードの型を確認します。`test`はVitest、`build`は型チェックと配布用ビルドです。Playwrightのブラウザー導入は初回とバージョン変更時に必要です。Linuxのシステム依存関係を導入する`--with-deps`は管理者権限を要求する場合があります。
 
-E2Eは[frontend.spec.ts](e2e/frontend.spec.ts)のシナリオをChromiumとFirefoxで実行する構成です。件数と実行結果は品質レビュー記録に集約します。標準ではテスト用の開発サーバーを`127.0.0.1:4173`で起動します。検索・絞り込み、Indeed型スクロール、複数リポジトリ、プロフィールとコメント、保存記事の別セッション復元、解析の重複・中止、壊れた保存データ、共有、保存拒否、表示状態、文字拡大、MVP、長文、タブ間の保存競合を確認します。axeによる自動アクセシビリティ検査も含みます。
+デザイン専用の `test:e2e:design` は[frontend.spec.ts](e2e/frontend.spec.ts)などのシナリオをChromiumとFirefoxで実行し、開発サーバーを`127.0.0.1:4173`で起動します。検索・絞り込み、Indeed型スクロール、複数リポジトリ、プロフィールとコメント、保存記事の別セッション復元、解析の重複・中止、壊れた保存データ、共有、保存拒否、表示状態、文字拡大、MVP、長文、タブ間の保存競合を確認します。axeによる自動アクセシビリティ検査も含みます。
 
-すでに起動したローカルサーバーを使う場合は、任意の`PLAYWRIGHT_BASE_URL`を指定します。この場合Playwrightはサーバーを起動しません。
+デザイン専用テストで起動済みのローカルプレビューを使う場合だけ、`PLAYWRIGHT_BASE_URL`を指定できます。この場合Playwrightはサーバーを起動しません。標準E2Eはfixtureとサーバーを自動管理し、外部サーバー指定は使用しません。
 
 ```bash
-PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 pnpm test:e2e
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 pnpm test:e2e:design
 ```
 
-Windows PowerShellの場合は環境変数の指定を`$env:PLAYWRIGHT_BASE_URL = "http://127.0.0.1:5173"`とし、同じシェルで`pnpm test:e2e`を実行します。既存サーバーの利用時も、ブラウザーと依存関係はテストを実行するOS側にインストールします。
+Windows PowerShellの場合は環境変数の指定を`$env:PLAYWRIGHT_BASE_URL = "http://127.0.0.1:5173"`とし、同じシェルで`pnpm test:e2e:design`を実行します。既存サーバーの利用時も、ブラウザーと依存関係はテストを実行するOS側にインストールします。
 
-失敗時は`playwright-report/`と`test-results/`に結果・スクリーンショット・トレースが残ります。`pnpm exec playwright show-report`でHTMLレポートを開けます。実施環境、結果、手動で残る確認は[品質レビュー記録](../docs/frontend-quality-review.md)を参照してください。自動検査の成功だけで、実機操作やスクリーンリーダーでの検証が済んだとは扱いません。
+失敗時は`playwright-report/`と`test-results/`に結果・スクリーンショット・トレースが残ります。`pnpm exec playwright show-report`でHTMLレポートを開けます。実データ側の実施環境、結果、制限は[全体結合ガイド](../docs/e2e-integration.md)を参照してください。自動検査の成功だけで、実機操作やスクリーンリーダーでの検証が済んだとは扱いません。
 
 ## 個別解析・共有・追跡の追加案（チーム未合意）
 

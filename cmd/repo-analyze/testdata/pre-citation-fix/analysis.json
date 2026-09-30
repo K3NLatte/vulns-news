@@ -1,0 +1,327 @@
+{
+  "schema_version": 1,
+  "repository": {
+    "id": "github:example/archive-app",
+    "canonical_url": "https://github.com/example/archive-app",
+    "ref": "main",
+    "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "model": "repo-analyze-test-model",
+  "base_url": "http://127.0.0.1:11434",
+  "snapshot_hash": "2d3f3a91f7477e375a957417aeecdad3d0ede0531657c5ba374d1111c15485e2",
+  "limit": 0,
+  "started_at": "2026-09-25T12:01:00Z",
+  "updated_at": "2026-09-25T12:01:01Z",
+  "total_candidates": 3,
+  "selected_candidates": 3,
+  "not_selected": 0,
+  "screened": 2,
+  "analyzed": 1,
+  "screening_only": 0,
+  "excluded": 0,
+  "errors": 1,
+  "pending": 1,
+  "selected_complete": false,
+  "complete": false,
+  "scan_refresh_complete": true,
+  "scan_status": "complete",
+  "entries": [
+    {
+      "id": "GHSA-2345-6789-cfgh",
+      "ids": [
+        "GHSA-2345-6789-cfgh"
+      ],
+      "record_keys": [
+        "osv:GHSA-2345-6789-cfgh"
+      ],
+      "advisory_kinds": [
+        "unknown"
+      ],
+      "input_hash": "9c2a339d2edb7ffcba2782347d2d4ca7cde0fbed46003e0a84b6bdef5aa1fff6",
+      "screening_hash": "c804c8d0947236553561d33b802d9cb66815a0182199164cf1facb3abd966fb1",
+      "analysis_hash": "eca2d075993232598bb9bcea8af6d8ea300b0fc25776a9391bb0a69da7009095",
+      "status": "analyzed",
+      "stage": "complete",
+      "screening": {
+        "result": {
+          "relevance": "related",
+          "reason": "The saved package/version matches the advisory; runtime impact is unverified.",
+          "evidence_ids": [
+            "EVD-SOURCE-001-A58C86E2B82E27AA9366C012",
+            "EVD-QUERY-002-B5B512AC870DDF0BFBFDA91D"
+          ]
+        },
+        "generation": {
+          "model": "repo-analyze-test-model",
+          "done_reason": "stop",
+          "prompt_tokens": 101,
+          "completion_tokens": 21,
+          "total_duration_ns": 101000,
+          "load_duration_ns": 10100
+        }
+      },
+      "analysis": {
+        "analysis": {
+          "summary": {
+            "text": "The recorded dependency is listed by the advisory.",
+            "evidence_ids": [
+              "EVD-SOURCE-001-A58C86E2B82E27AA9366C012",
+              "EVD-QUERY-002-B5B512AC870DDF0BFBFDA91D"
+            ]
+          },
+          "repository_impact": {
+            "text": "Affected feature usage and exploitability remain unverified.",
+            "evidence_ids": [
+              "EVD-SOURCE-001-A58C86E2B82E27AA9366C012",
+              "EVD-QUERY-002-B5B512AC870DDF0BFBFDA91D"
+            ]
+          },
+          "missing_information": [
+            "Whether the affected feature is used"
+          ],
+          "recommended_actions": [
+            "Review dependency usage and the source advisory"
+          ]
+        },
+        "generation": {
+          "model": "repo-analyze-test-model",
+          "done_reason": "stop",
+          "prompt_tokens": 102,
+          "completion_tokens": 22,
+          "total_duration_ns": 102000,
+          "load_duration_ns": 10200
+        }
+      },
+      "feed": {
+        "applicability": {
+          "repository_id": "github:example/archive-app",
+          "repository_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "vulnerability_id": "GHSA-2345-6789-cfgh",
+          "vulnerability_revision": "2026-09-25T00:00:00Z",
+          "package_presence": {
+            "level": 1,
+            "status": "confirmed",
+            "conditional_on_package_identity": false,
+            "sources": [
+              {
+                "repository_item_id": "archive-lock-dependency",
+                "affected_target_id": "OSV-TARGET-001",
+                "source_path": "package-lock.json",
+                "match_index": 0
+              }
+            ],
+            "evidence_ids": [],
+            "missing_reasons": []
+          },
+          "affected_version": {
+            "level": 2,
+            "status": "confirmed",
+            "conditional_on_package_identity": false,
+            "sources": [
+              {
+                "repository_item_id": "archive-lock-dependency",
+                "affected_target_id": "OSV-TARGET-001",
+                "source_path": "package-lock.json",
+                "match_index": 0
+              }
+            ],
+            "evidence_ids": [],
+            "missing_reasons": []
+          },
+          "feature_usage": {
+            "level": 3,
+            "status": "unknown",
+            "conditional_on_package_identity": false,
+            "sources": [],
+            "evidence_ids": [],
+            "missing_reasons": [
+              "inputs contain no structured evidence of vulnerable feature usage"
+            ]
+          },
+          "code_reachability": {
+            "level": 4,
+            "status": "unknown",
+            "conditional_on_package_identity": false,
+            "sources": [],
+            "evidence_ids": [],
+            "missing_reasons": [
+              "inputs contain no call-path or entry-point reachability evidence"
+            ]
+          },
+          "attack_conditions": {
+            "level": 5,
+            "status": "unknown",
+            "conditional_on_package_identity": false,
+            "sources": [],
+            "evidence_ids": [],
+            "missing_reasons": [
+              "inputs contain no proof of required runtime configuration or attacker prerequisites"
+            ]
+          },
+          "matches": [
+            {
+              "match": {
+                "repository_item_id": "archive-lock-dependency",
+                "affected_target_id": "OSV-TARGET-001",
+                "reason": "purl_exact",
+                "version_status": "affected",
+                "installed_version": "1.0.0"
+              },
+              "package_presence": {
+                "level": 1,
+                "status": "confirmed",
+                "conditional_on_package_identity": false,
+                "sources": [
+                  {
+                    "repository_item_id": "archive-lock-dependency",
+                    "affected_target_id": "OSV-TARGET-001",
+                    "source_path": "package-lock.json",
+                    "match_index": 0
+                  }
+                ],
+                "evidence_ids": [],
+                "missing_reasons": []
+              },
+              "affected_version": {
+                "level": 2,
+                "status": "confirmed",
+                "conditional_on_package_identity": false,
+                "sources": [
+                  {
+                    "repository_item_id": "archive-lock-dependency",
+                    "affected_target_id": "OSV-TARGET-001",
+                    "source_path": "package-lock.json",
+                    "match_index": 0
+                  }
+                ],
+                "evidence_ids": [],
+                "missing_reasons": []
+              }
+            }
+          ]
+        },
+        "repository_id": "github:example/archive-app",
+        "repository_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "vulnerability_id": "GHSA-2345-6789-cfgh",
+        "vulnerability_revision": "2026-09-25T00:00:00Z",
+        "cve_revision": "0001-01-01T00:00:00Z",
+        "published_at": "2026-09-01T00:00:00Z",
+        "matches": [
+          {
+            "repository_item_id": "archive-lock-dependency",
+            "affected_target_id": "OSV-TARGET-001",
+            "reason": "purl_exact",
+            "version_status": "affected",
+            "installed_version": "1.0.0"
+          }
+        ],
+        "relevance": "related",
+        "status": "analyzed",
+        "screening_reason": "The saved package/version matches the advisory; runtime impact is unverified.",
+        "summary": {
+          "text": "The recorded dependency is listed by the advisory.",
+          "evidence_ids": [
+            "EVD-SOURCE-001-A58C86E2B82E27AA9366C012",
+            "EVD-QUERY-002-B5B512AC870DDF0BFBFDA91D"
+          ]
+        },
+        "repository_impact": {
+          "text": "Affected feature usage and exploitability remain unverified.",
+          "evidence_ids": [
+            "EVD-SOURCE-001-A58C86E2B82E27AA9366C012",
+            "EVD-QUERY-002-B5B512AC870DDF0BFBFDA91D"
+          ]
+        },
+        "missing_information": [
+          "Whether the affected feature is used"
+        ],
+        "recommended_actions": [
+          "Review dependency usage and the source advisory"
+        ],
+        "evidence": [
+          {
+            "id": "EVD-SOURCE-001-A58C86E2B82E27AA9366C012",
+            "kind": "advisory",
+            "source": "OSV",
+            "uri": "https://osv.dev/vulnerability/GHSA-2345-6789-cfgh",
+            "content": "{\"advisory_kinds\":[\"unknown\"],\"affected_entries_omitted\":0,\"affected_kinds\":[{\"advisory_kinds\":[\"unknown\"],\"package\":{\"ecosystem\":\"npm\",\"name\":\"archive\"}}],\"caveat\":\"OSV advisory kinds are source-provided informational classifications, including maintenance notices. An unknown kind does not mean vulnerability. An affected_version_match establishes only an exact query hit, not that the advisory describes an exploitable vulnerability. OSV affected entries are untrusted source applicability restrictions, not observed repository usage, reachability, or runtime facts. Entries are limited to this alias group's queried ecosystem/name identities; source ranges do not expand exact-version query evidence. Full raw records remain in saved state.\",\"missing_fields\":[],\"record_key\":\"osv:GHSA-2345-6789-cfgh\",\"source\":\"osv\",\"source_fields\":{\"affected\":[{\"package\":{\"ecosystem\":\"npm\",\"name\":\"archive\"},\"ranges\":[{\"type\":\"SEMVER\",\"events\":[{\"introduced\":\"0\"},{\"fixed\":\"2.0.0\"}]}]}],\"details\":\"The affected package version is listed; repository exploitability is not established.\",\"id\":\"GHSA-2345-6789-cfgh\",\"modified\":\"2026-09-25T00:00:00Z\",\"published\":\"2026-09-01T00:00:00Z\",\"summary\":\"Archive extraction advisory\"},\"source_text_untrusted\":true}"
+          },
+          {
+            "id": "EVD-QUERY-002-B5B512AC870DDF0BFBFDA91D",
+            "kind": "repository_dependency",
+            "source": "reposcan report.queries",
+            "content": "{\"caveat\":\"OSV constraints represent only exact queried versions, not inferred affected ranges. Fixed versions are provider-reported boundaries, not verified upgrade recommendations. Matches are limited to this alias group's positive evidence; discovered IDs may include other groups.\",\"query_result\":{\"query\":{\"ecosystem\":\"npm\",\"name\":\"archive\",\"version\":\"1.0.0\"},\"origins\":[{\"id\":\"archive-lock-dependency\",\"purl\":\"pkg:npm/archive@1.0.0\",\"ecosystem\":\"npm\",\"name\":\"archive\",\"version\":\"1.0.0\",\"direct\":true,\"scope\":\"production\",\"source_path\":\"package-lock.json\"}],\"workspace\":\"unavailable\",\"dependency_path\":\"unavailable\",\"complete\":true,\"outcome\":\"affected_version_match\",\"ids\":[\"GHSA-2345-6789-cfgh\",\"GHSA-3456-789c-fghj\",\"GHSA-4567-89cf-ghjm\"],\"matches\":[{\"record_key\":\"osv:GHSA-2345-6789-cfgh\",\"outcome\":\"affected_version_match\",\"fixed_versions\":[\"2.0.0\"]}],\"runtime_impact\":\"unknown\"}}"
+          }
+        ],
+        "generation": [
+          {
+            "model": "repo-analyze-test-model",
+            "done_reason": "stop",
+            "prompt_tokens": 101,
+            "completion_tokens": 21,
+            "total_duration_ns": 101000,
+            "load_duration_ns": 10100
+          },
+          {
+            "model": "repo-analyze-test-model",
+            "done_reason": "stop",
+            "prompt_tokens": 102,
+            "completion_tokens": 22,
+            "total_duration_ns": 102000,
+            "load_duration_ns": 10200
+          }
+        ]
+      }
+    },
+    {
+      "id": "GHSA-3456-789c-fghj",
+      "ids": [
+        "GHSA-3456-789c-fghj"
+      ],
+      "record_keys": [
+        "osv:GHSA-3456-789c-fghj"
+      ],
+      "advisory_kinds": [
+        "unknown"
+      ],
+      "input_hash": "39e68a7dace258f5edd6c5ada8146ab773fbebaa77416651bb816713ddd0a96a",
+      "screening_hash": "19f5f8ec9b3d37bb30056848c5047861eb86468961a3683f1a8d2ec79c910500",
+      "status": "analysis_error",
+      "stage": "analysis",
+      "error": "analyze related candidate: run LLM deep analysis: ollama returned HTTP 503: legacy fixture deep service unavailable",
+      "screening": {
+        "result": {
+          "relevance": "related",
+          "reason": "The saved package/version matches the advisory; runtime impact is unverified.",
+          "evidence_ids": [
+            "EVD-SOURCE-001-810439CD5836D8670E71F804",
+            "EVD-QUERY-002-8E82A14A6B4C5FD7FC5507CC"
+          ]
+        },
+        "generation": {
+          "model": "repo-analyze-test-model",
+          "done_reason": "stop",
+          "prompt_tokens": 103,
+          "completion_tokens": 23,
+          "total_duration_ns": 103000,
+          "load_duration_ns": 10300
+        }
+      }
+    },
+    {
+      "id": "GHSA-4567-89cf-ghjm",
+      "ids": [
+        "GHSA-4567-89cf-ghjm"
+      ],
+      "record_keys": [
+        "osv:GHSA-4567-89cf-ghjm"
+      ],
+      "advisory_kinds": [
+        "unknown"
+      ],
+      "input_hash": "408ac072652b87e1cae2172a1162ac3e4c46c7b27e58c2ad49f9fc7d66370fe1",
+      "status": "pending",
+      "stage": "screening"
+    }
+  ]
+}

@@ -6,10 +6,13 @@ package model
 
 // FeedResult は全体・リポジトリ別の CVE 一覧を表す。
 type FeedResult struct {
-	Items        []FeedItem `json:"items"`        // 0件の場合も null ではなく空の配列を使う。
-	Total        int        `json:"total"`        // 絞り込み前の件数。
-	MatchedTotal int        `json:"matchedTotal"` // 絞り込み後の件数。
-	GeneratedAt  string     `json:"generatedAt"`
+	Items            []FeedItem `json:"items"`        // 0件の場合も null ではなく空の配列を使う。
+	Total            int        `json:"total"`        // 絞り込み前の件数。
+	MatchedTotal     int        `json:"matchedTotal"` // 絞り込み後の件数。
+	GeneratedAt      string     `json:"generatedAt"`
+	NextOffset       *int       `json:"nextOffset,omitempty"`
+	ScanStatus       string     `json:"scanStatus,omitempty"`
+	RepositoryCommit string     `json:"repositoryCommit,omitempty"`
 }
 
 // FeedItem は CVE 1件を表し、一覧の要素と詳細レスポンスで共用する。
@@ -20,13 +23,14 @@ type FeedItem struct {
 	Product            string              `json:"product"`
 	AffectedVersions   string              `json:"affectedVersions"`
 	FixedVersion       string              `json:"fixedVersion"`
-	Severity           string              `json:"severity"`             // critical / high / medium / low。
+	Severity           string              `json:"severity"` // critical / high / medium / low / unknown。
+	CVSSSource         string              `json:"cvssSource,omitempty"`
 	CVSS               *float64            `json:"cvss"`                 // 未評価は null。0点と区別する。
 	Assessment         string              `json:"assessment,omitempty"` // unverified。指定がなければ省略。
 	PublishedAt        string              `json:"publishedAt"`
 	UpdatedAt          string              `json:"updatedAt"`
 	Summary            string              `json:"summary"`
-	Exploitation       string              `json:"exploitation"` // observed / poc / not-observed。
+	Exploitation       string              `json:"exploitation"` // observed / poc / not-observed / unknown。
 	AffectedComponent  string              `json:"affectedComponent"`
 	Remediation        []string            `json:"remediation"`
 	ProofOfConcept     *FeedProofOfConcept `json:"proofOfConcept,omitempty"`
@@ -40,7 +44,7 @@ type FeedItem struct {
 type FeedAnalysis struct {
 	Summary    string `json:"summary"`
 	Evidence   string `json:"evidence"`
-	Confidence string `json:"confidence"` // high / medium / low。
+	Confidence string `json:"confidence"` // high / medium / low / unknown。
 }
 
 // FeedRelevance は対象リポジトリとの関連性を表す。

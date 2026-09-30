@@ -10,8 +10,12 @@
     "typecheck": "vue-tsc --noEmit && tsc -p tsconfig.e2e.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test:e2e:production": "playwright test --config playwright.production.config.ts"
+    "test:e2e": "pnpm build && playwright test",
+    "test:e2e:api": "pnpm build && playwright test --config playwright.api.config.ts",
+    "test:e2e:production": "pnpm build && playwright test --config playwright.production.config.ts",
+    "test:e2e:design": "playwright test --config playwright.design.config.ts",
+    "test:e2e:legacy": "playwright test --config playwright.legacy.config.ts",
+    "test:e2e:live": "playwright test --config playwright.live.config.ts"
   },
   "dependencies": {
     "@lucide/vue": "^1.47.0",

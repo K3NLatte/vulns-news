@@ -1,0 +1,101 @@
+{
+  "vulnerability": {
+    "id": "CVE-2026-1234",
+    "published_at": "2026-09-24T10:00:00Z",
+    "modified_at": "2026-09-24T12:00:00Z",
+    "description": "@example/archive versions before 1.4.0 do not sufficiently validate archive entry paths and may write files outside the destination directory.",
+    "severity": "HIGH",
+    "cvss": 8.1,
+    "weaknesses": [
+      "CWE-22"
+    ],
+    "affected": [
+      {
+        "id": "target-npm-001",
+        "kind": "package",
+        "purl": "pkg:npm/%40example/archive",
+        "ecosystem": "npm",
+        "package_name": "@example/archive",
+        "vendor": "example",
+        "product": "archive",
+        "cpes": [],
+        "aliases": [],
+        "constraints": [
+          {
+            "scheme": "semver",
+            "version_end_excluding": "1.4.0"
+          }
+        ]
+      }
+    ],
+    "references": [
+      {
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-1234",
+        "tags": [
+          "NVD"
+        ]
+      }
+    ]
+  },
+  "repository": {
+    "repository": {
+      "id": "repo-mock-001",
+      "canonical_url": "https://github.com/example/payment-api",
+      "ref": "main",
+      "commit_sha": "abc123"
+    },
+    "profiled_at": "2026-09-25T00:00:00Z",
+    "languages": [
+      {
+        "name": "TypeScript",
+        "percentage": 95,
+        "source_paths": [
+          "src/index.ts",
+          "src/archive.ts"
+        ]
+      }
+    ],
+    "ecosystems": [
+      {
+        "name": "npm",
+        "manifests": [
+          "package.json"
+        ],
+        "lockfiles": [
+          "pnpm-lock.yaml"
+        ]
+      }
+    ],
+    "components": [
+      {
+        "id": "component-npm-001",
+        "purl": "pkg:npm/%40example/archive",
+        "ecosystem": "npm",
+        "namespace": "@example",
+        "name": "@example/archive",
+        "version": "1.3.0",
+        "direct": true,
+        "scope": "runtime",
+        "source_path": "pnpm-lock.yaml"
+      }
+    ],
+    "products": [],
+    "containers": [],
+    "infrastructure": []
+  },
+  "evidence": [
+    {
+      "id": "EVD-NVD-001",
+      "kind": "nvd",
+      "source": "NVD",
+      "uri": "https://nvd.nist.gov/vuln/detail/CVE-2026-1234",
+      "content": "@example/archive versions before 1.4.0 are affected by insufficient archive entry path validation. Version 1.4.0 contains the fix."
+    },
+    {
+      "id": "EVD-REPO-DEP-001",
+      "kind": "repository_dependency",
+      "source": "pnpm-lock.yaml",
+      "content": "The repository has a direct runtime dependency on @example/archive version 1.3.0."
+    }
+  ]
+}

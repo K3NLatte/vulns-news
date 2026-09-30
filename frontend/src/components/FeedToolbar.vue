@@ -15,7 +15,7 @@ const emit = defineEmits<{
   'update:severity': [value: Severity | 'all']
   'update:sort': [value: FeedSort]
 }>()
-const severities: Severity[] = ['critical', 'high', 'medium', 'low']
+const severities: Severity[] = ['critical', 'high', 'medium', 'low', 'none', 'unknown']
 const searchInput = ref<HTMLInputElement | null>(null)
 const composing = ref(false)
 function updateSearch(event: Event) {

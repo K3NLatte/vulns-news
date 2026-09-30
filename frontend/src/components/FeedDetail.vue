@@ -40,6 +40,8 @@ const props = withDefaults(defineProps<{
   repositoryLabel?: string
   expanded?: boolean
   fullFeatures?: boolean
+  showProofOfConcept?: boolean
+  showSharing?: boolean
   canReview?: boolean
   saved?: boolean
   comments?: FeedComment[]
@@ -50,6 +52,8 @@ const props = withDefaults(defineProps<{
   repositoryLabel: '',
   expanded: false,
   fullFeatures: true,
+  showProofOfConcept: false,
+  showSharing: false,
   canReview: true,
   saved: false,
   comments: () => [],
@@ -86,6 +90,7 @@ const reviewStatuses: { value: ReviewStatus; label: string }[] = [
 ]
 
 const pending = computed(() => props.personalized && !canReviewRepositoryArticle(props.item))
+const sectionHeading = computed(() => props.expanded ? 'h2' : 'h3')
 const reviewEnabled = computed(() => props.fullFeatures && props.personalized && props.canReview
   && canReviewRepositoryArticle(props.item))
 const copied = ref(false)
@@ -156,7 +161,7 @@ function updateReviewStatus(event: Event) {
         記事の詳細
       </span>
       <div class="detail-actions">
-        <ShareArticle v-if="fullFeatures" :article-id="item.id" :title="item.title" />
+        <ShareArticle v-if="fullFeatures || showSharing" :article-id="item.id" :title="item.title" />
         <button
           v-if="fullFeatures"
           class="text-button save-button"
@@ -218,15 +223,16 @@ function updateReviewStatus(event: Event) {
           <span class="cvss-label">CVSS</span>
           <span v-if="item.assessment === 'unverified'" class="severity-badge">未評価</span>
           <SeverityBadge v-else :severity="item.severity" :score="item.cvss" />
-          <span v-if="item.cvss === null && item.assessment !== 'unverified'">未評価</span>
+          <span v-if="item.cvss === null && item.assessment !== 'unverified' && item.severity !== 'unknown'">未評価</span>
         </span>
         <span>{{ item.assessment === 'unverified' ? '悪用情報 未確認' : exploitationLabels[item.exploitation] }}</span>
       </div>
+      <p v-if="item.cvssSource" class="detail-label">CVSS出典：{{ item.cvssSource }}（対象リポジトリのリスク確定ではありません）</p>
     </header>
     <div class="detail-content" :tabindex="expanded ? undefined : 0" role="region" aria-label="記事の本文">
       <p v-if="pending" class="pending-analysis-note"><strong>リポジトリとの関連性は未確定です。</strong>影響の判断に必要な情報が不足しています。</p>
       <p class="detail-summary">{{ item.summary }}</p>
-      <ReportTracking v-if="fullFeatures && lifecycle && now" :lifecycle="lifecycle" :now="now" :job="reportJob" @reanalyze="emit('reanalyze')" @renew="emit('renew')" />
+      <ReportTracking v-if="fullFeatures && lifecycle && now" :lifecycle="lifecycle" :now="now" :job="reportJob" :heading-tag="sectionHeading" @reanalyze="emit('reanalyze')" @renew="emit('renew')" />
 
       <dl class="facts-grid">
         <div>
@@ -253,10 +259,10 @@ function updateReviewStatus(event: Event) {
         aria-labelledby="relevance-heading"
       >
         <div class="section-heading">
-          <h3 id="relevance-heading">
+          <component :is="sectionHeading" id="relevance-heading" class="detail-section-heading">
             <GitBranch :size="18" aria-hidden="true" />
             リポジトリへの影響
-          </h3>
+          </component>
           <span class="priority-badge" :class="'priority-' + repositoryPriority">
             優先度：{{ priorityLabels[repositoryPriority] }}
           </span>
@@ -283,7 +289,7 @@ function updateReviewStatus(event: Event) {
         class="detail-section triage-section"
         aria-labelledby="review-heading"
       >
-        <h3 id="review-heading">対応状況</h3>
+        <component :is="sectionHeading" id="review-heading" class="detail-section-heading">対応状況</component>
         <div class="review-control">
           <label for="article-review-status">このリポジトリでの対応</label>
           <span class="select-control">
@@ -302,7 +308,7 @@ function updateReviewStatus(event: Event) {
       </section>
 
       <section v-if="!pending" class="detail-section" aria-labelledby="remediation-heading">
-        <h3 id="remediation-heading">対応の確認ポイント</h3>
+        <component :is="sectionHeading" id="remediation-heading" class="detail-section-heading">対応の確認ポイント</component>
         <ol class="remediation-list">
           <li v-for="step in item.remediation" :key="step">{{ step }}</li>
         </ol>
@@ -310,10 +316,10 @@ function updateReviewStatus(event: Event) {
 
       <section v-if="!pending" class="analysis-section" aria-labelledby="analysis-heading">
         <div class="section-heading">
-          <h3 id="analysis-heading">
+          <component :is="sectionHeading" id="analysis-heading" class="detail-section-heading">
             <FlaskConical :size="18" aria-hidden="true" />
             分析
-          </h3>
+          </component>
           <span class="confidence-label">確度：{{ confidenceLabels[item.analysis.confidence] }}</span>
         </div>
         <p>{{ item.analysis.summary }}</p>
@@ -323,10 +329,10 @@ function updateReviewStatus(event: Event) {
         </details>
       </section>
 
-      <details v-if="fullFeatures && !pending && item.proofOfConcept" class="detail-section poc-section">
+      <details v-if="(fullFeatures || showProofOfConcept) && !pending && item.proofOfConcept" class="detail-section poc-section">
         <summary>PoC</summary>
         <div class="poc-content">
-          <h3 v-if="item.proofOfConcept.conditions.length">確認条件</h3>
+          <component :is="sectionHeading" v-if="item.proofOfConcept.conditions.length" class="detail-section-heading">確認条件</component>
           <ul v-if="item.proofOfConcept.conditions.length" class="poc-conditions">
             <li v-for="condition in item.proofOfConcept.conditions" :key="condition">
               {{ condition }}
@@ -338,7 +344,7 @@ function updateReviewStatus(event: Event) {
       </details>
 
       <section class="detail-section reference-section" aria-labelledby="reference-heading">
-        <h3 id="reference-heading">参照情報</h3>
+        <component :is="sectionHeading" id="reference-heading" class="detail-section-heading">参照情報</component>
         <ul>
           <li v-for="source in sources" :key="source.url">
             <span class="source-kind">{{ source.kind === 'vendor' ? '提供元' : '技術資料' }}</span>

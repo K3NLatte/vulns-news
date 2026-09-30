@@ -1,5 +1,5 @@
-export type Severity = 'critical' | 'high' | 'medium' | 'low'
-export type Exploitation = 'observed' | 'poc' | 'not-observed'
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'none' | 'unknown'
+export type Exploitation = 'observed' | 'poc' | 'not-observed' | 'unknown'
 export type FeedSort = 'newest' | 'severity' | 'relevance'
 export type FeedScope = 'all' | 'repository'
 export type ReviewPriority = 'urgent' | 'high' | 'medium' | 'low' | 'review'
@@ -21,6 +21,7 @@ export interface FeedItem {
   fixedVersion: string
   severity: Severity
   cvss: number | null
+  cvssSource?: string
   assessment?: 'unverified'
   publishedAt: string
   updatedAt: string
@@ -38,7 +39,7 @@ export interface FeedItem {
   analysis: {
     summary: string
     evidence: string
-    confidence: 'high' | 'medium' | 'low'
+    confidence: 'high' | 'medium' | 'low' | 'unknown'
   }
   relevance?: {
     kind: 'direct' | 'transitive' | 'review'
@@ -63,9 +64,13 @@ export interface FeedResult {
   /** Number of items after all filters. */
   matchedTotal: number
   generatedAt: string
+  scanStatus?: 'complete' | 'incomplete'
+  repositoryCommit?: string
 }
 
 export interface FeedOptions {
+  /** 処理中でも取得できたフィードを画面へ反映する。 */
+  onProgress?: (result: FeedResult) => void
   signal?: AbortSignal
   scenario?: 'ready' | 'empty' | 'error'
   delayMs?: number

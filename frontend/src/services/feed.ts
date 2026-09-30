@@ -27,6 +27,8 @@ const severityOrder: Record<Severity, number> = {
   high: 1,
   medium: 2,
   low: 3,
+  none: 4,
+  unknown: 5,
 }
 
 /** Validates input only; this does not establish that a repository is public or exists. */
@@ -159,7 +161,7 @@ export function filterFeedItems(source: FeedItem[], query: FeedQuery): FeedItem[
       if (aScore !== bScore) return bScore - aScore
     }
     if (query.sort === 'severity') {
-      const severityDifference = (a.assessment === 'unverified' ? 4 : severityOrder[a.severity]) - (b.assessment === 'unverified' ? 4 : severityOrder[b.severity])
+      const severityDifference = (a.assessment === 'unverified' ? severityOrder.unknown : severityOrder[a.severity]) - (b.assessment === 'unverified' ? severityOrder.unknown : severityOrder[b.severity])
       if (severityDifference) return severityDifference
     }
     return b.publishedAt.localeCompare(a.publishedAt) || a.id.localeCompare(b.id)

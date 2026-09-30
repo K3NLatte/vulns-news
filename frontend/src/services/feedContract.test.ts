@@ -4,6 +4,19 @@ import { parseFeedResult } from './feedContract'
 
 const fixture = () => getFeed({ scope: 'all', search: '', severity: 'all', sort: 'newest' }, { delayMs: 0 })
 describe('feed adapter boundary', () => {
+  it('preserves CVSS zero, absent scores, and source attribution distinctly', async () => {
+    const input = await fixture()
+    input.items[0]!.cvss = 0
+    input.items[0]!.severity = 'none'
+    input.items[0]!.cvssSource = 'OSV GHSA-example / CVSS 4.0 基本値'
+    input.items[1]!.cvss = null
+    input.items[1]!.severity = 'unknown'
+    const result = parseFeedResult(input)
+    expect(result.items[0]!.cvss).toBe(0)
+    expect(result.items[0]!.severity).toBe('none')
+    expect(result.items[0]!.cvssSource).toBe(input.items[0]!.cvssSource)
+    expect(result.items[1]!.cvss).toBeNull()
+  })
   it('returns independent, validated view data without stripping text that must be escaped by Vue', async () => {
     const input = await fixture()
     input.items[0]!.title = '<img src=x onerror=alert(1)>'
