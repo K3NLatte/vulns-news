@@ -12,34 +12,10 @@ go run ./cmd/news-server -model=""
 
 http://127.0.0.1:8080/ を開きます。上記は保存結果の閲覧専用で、初回は空です。既存解析の取り込み、新規スキャンを有効にする方法、非LLM検証は [全体結合ガイド](docs/e2e-integration.md) を参照してください。
 
-## main由来のAPI・保存機能とローカルプレビュー
+現行フロントの正式な接続先は `cmd/news-server` です。旧 `server/cmd/api` のモックAPIとSQLite実装は互換性維持のため保持していますが、現行画面に必要な `GET /api/analyses` に対応せず、接続先としては使用しません。保存データの自動移行も行いません。
 
-mainのモックAPI・SQLite reportstoreは、実解析用の `cmd/news-server` と独立して保持しています。
+標準GUI検証は `pnpm --dir frontend test:e2e`。本番ビルドと現行サーバーを使い、リポジトリ内fixtureを一時領域に取り込むため、外部LLM・スキャン・手元の実解析データは不要です。初回のブラウザー導入などは [フロントガイド](frontend/README.md#検証) を参照してください。
 
-- モックAPI: `go run ./server/cmd/api`（[APIガイド](server/README.md)）
-- SQLiteのレポート保存CRUD: [reportstoreガイド](server/repository/reportstore/README.md)。HTTPルートへの接続は未実装です。
-- 架空データでの画面確認: `VITE_FEED_SOURCE=local pnpm --dir frontend dev`（開発時のみ）。通常・本番は実APIを使用します。
-- [フロント起動・画面の確認方法](frontend/README.md)、[既存の連携メモ](docs/frontend-integration.md)、[製品の範囲](PRODUCT.md)
-
-各サーバーは既定で8080番を使用するため、同時に起動しないでください。JSON保存の実解析とSQLite保存は別経路で、保存済みデータを自動移行しません。
-
-NVDの公開API `nvd.NewClient()` / `Client.Fetch` / `CVE` はmainのままです。解析用の設定付きクライアントは `nvd.NewAnalysisClient(nvd.Config)` / `AnalysisClient`、正規化前の詳細レコード型は `CVERecord` として分離しています。
-
-## Google Colabで試す（ソース同梱）
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/K3NLatte/vulns-news/blob/feature/local-llm/docs/colab-standalone.ipynb)
-
-共有用ファイル：[`docs/colab-standalone.ipynb`](docs/colab-standalone.ipynb)。新しいColabランタイムでセル1から順に実行できます。Goソースを同梱しているため、ローカル環境・ソースZIP・以前のPython変数は不要です。
-
-1. 上のリンクから開き、必要なら自分のGoogle Driveにコピーします。
-2. ランタイムをGPUに設定します。CPUを使う場合はセル3で `REQUIRE_GPU=False` を明示します。
-3. セル2の `REPOSITORY_URL` を対象の公開GitHubリポジトリに設定します。初期値はNext.jsです。初回は `SOURCE_MODE="github"`、保存済みstateと分析結果から再開する場合は `"resume"` を選びます。
-4. セル3でOllamaとモデルを準備し、セル4で分析します。初期値 `LIMIT=0` は全候補です。動作確認だけなら新規分析時に `LIMIT=5` などを指定できますが、全候補のE2E確認にはなりません。途中結果に対してlimitやモデルを変更する場合は別の分析出力が必要です。
-5. セル5で成功・エラー・未処理・Deep Analysisへの到達を確認し、セル6でstateと結果を保存します。候補エラーがあっても後続を処理しますが、失敗を安全／成功に置き換えません。
-
-**注意:** モデル等のダウンロードと外部API通信が必要です。初期設定はローカルOllama・NVD補完なしで、外部LLMのAPIキーは不要です。GPUの利用可否・料金・実行時間はColabの契約と制限に従います。本分析の待ち時間上限は初期値で無効です。一部候補が約34分かかった実行例があり、この性能問題は未解決です。短時間での全件完了を保証しません。手動停止後、成功済みの段階を再利用して再開できます。
-
-同梱コードは配布時のスナップショットです。ノートブックには実スキャン結果や秘密情報を保存していませんが、実行後のstate・結果には依存情報や出典本文が含まれるため、共有前に内容を確認してください。リモートOllamaを指定すると分析材料がその接続先へ送られます。ライブColab E2Eの成功は未確認です。
 
 ## 開発環境
 
@@ -58,7 +34,7 @@ pnpm --version
 sqlite3 --version
 ```
 
-フロントエンドの開発時は、開発シェル内で次を実行します。
+フロントエンドの開発時は、上記の `cmd/news-server` を起動したまま、別の開発シェル内で次を実行します。`/api` は8080番の現行サーバーへ転送されます。
 
 ```sh
 pnpm --dir frontend install --frozen-lockfile
@@ -82,7 +58,7 @@ go run ./cmd/repo-scan \
 
 0件は「該当情報なし」であり、安全を意味しません。監視は保存したSHAの構成を1回再照会する方式です。自動スケジュール、全OSV/NVDの更新フィード取り込みは含みません。既存のNVD新着経路とは分離しています。
 
-**Colab用セル・結果matrixの表示・未対応範囲・終了コード**は [`docs/repository-scan.md`](docs/repository-scan.md) を参照してください。
+**結果matrixの表示・未対応範囲・終了コード**は [`docs/repository-scan.md`](docs/repository-scan.md) を参照してください。
 
 ## 保存したOSV結果をDeep Analysisまで検証
 
@@ -95,13 +71,6 @@ go run ./cmd/repo-analyze -state juice-shop-state.json \
 
 デフォルトは全候補。`-require-deep` は分析済みFeedが0件なら終了1にし、E2E到達を区別します。関連性を強制する機能ではありません。GPUが有効なのはOllamaの推論です。
 
-**ソース同梱の共有用ノートブック：** [`docs/colab-standalone.ipynb`](docs/colab-standalone.ipynb)
-
-開発用（ソースZIPを別途アップロード）：[`docs/colab-deep-analysis.ipynb`](docs/colab-deep-analysis.ipynb)
-
-ノートブック内で `scan-state.json` を生成し、そのまま分析へ渡します。stateの事前アップロードは不要です。既存stateを使うモードも残しています。NVD補完は明示的にオン／オフできます。
-
-**セルごとの説明：** [`docs/colab-deep-analysis.md`](docs/colab-deep-analysis.md)
 
 ## NVD クローラーと LLM 分析
 

@@ -5,10 +5,8 @@
 - `cmd/news-server`: 統合用の起動コマンド。既存のスキャン専用 `server/*.go` / `src/scanjob` は変更せず保持。
 - `server/live`: GitHub取得・Profile・OSV照合を既存ライブラリで実行し、`scananalyze.Run` → `pipeline.Process` → Screening／条件付きDeep Analysisに接続。
 - `server/live/feed.go`: 検証済みの解析とGo側の事実をフロントの契約へ変換。未知の重要度・悪用状況・確度は `unknown`。関連度スコアや直接／間接依存を推測しない。
-- `server/model` と `frontend`: `origin/codex/frontend-api-integration` の `2c985f6` から取り込んだ既存の統合作業を保持。main起点への組み直しで `server/api`・`server/cmd/api`・SQLite reportstoreも保持し、依存を統合した。`server/mockdata` はフロント単体テストとmain由来のモックAPIが使用し、実解析APIは使用しない。
+- `server/model` と `frontend`: API契約と画面。main由来の旧モックAPI `server/cmd/api` とSQLite reportstoreは独立して保持するが、現行画面の接続先ではない。旧APIには `GET /api/analyses` がなく405となる。実APIは旧モックデータを使用しない。
 - フロントは通常・本番とも実APIを使用。`VITE_FEED_SOURCE=local` は開発時だけのデザインプレビュー。
-
-mainのNVD公開API (`NewClient()` / `Client.Fetch` / `CVE`) と解析APIは分離して共存する。解析側は `NewAnalysisClient(Config)` / `AnalysisClient` / `CVERecord` を使用する。JSONの保存形式・解析ハッシュは変更しない。
 
 ## 起動（WSL内、リポジトリ直下）
 
@@ -110,7 +108,13 @@ go test -race ./server/live ./server ./src/scanjob
 pnpm --dir frontend typecheck
 pnpm --dir frontend test
 pnpm --dir frontend build
+pnpm --dir frontend exec playwright install chromium firefox
+pnpm --dir frontend test:e2e
 ```
+
+標準E2Eは本番ビルドと現行 `cmd/news-server` を使う。Playwrightが4176番で起動・終了し、既存 `cmd/repo-analyze/testdata/pre-citation-fix` の対応するscan/analysisを一時領域にimportしてから再起動する。外部LLM・スキャン・旧モックAPI・手元の実データは不要。`.local/news` は変更せず、一時領域は終了時に削除する。
+
+保存一覧の `readOnly`、部分結果の選択（POSTなし）、検索、詳細と再読み込み、モバイル、カタログ405からの再取得、本番URLモック指定の無効化とAPI障害を検証する。fixtureの解析は未完了で、有効な部分結果1件を表示する。API・本番UIの部分実行は `test:e2e:api` / `test:e2e:production`、デザイン専用は `test:e2e:design`。各スイートの範囲は [フロントガイド](../frontend/README.md#検証) を参照。
 
 Goの結合テストは固定のスキャン状態とテスト用Analyzerでジョブ→既存パイプライン→保存→再起動→HTTP一覧／詳細を確認する。壊れた出力の拒否、部分結果、入力検証、重複登録、ページ分割も対象。
 
@@ -166,4 +170,4 @@ NEWS_CAPTURE_SLIDES=1 pnpm --dir frontend test:e2e:live
 - サーバー終了後の自動再開はしない。再スキャンはrefresh API、保存済み解析からの再開は既存 `repo-analyze -resume` を使う。フロントにrefresh操作はまだない。
 - CVSS未評価や修正バージョン未確認を低リスクと解釈しない。直接／間接依存・ランタイム到達性・悪用状況を推測で生成しない。
 - 今回は長時間の実LLM処理および新しい外部GitHub/OSVのライブスキャンを再実行していない。実データの再利用と非LLMテストで結合を検証した。
-- 既存のデザイン／モックAPI用Playwrightスイートは保持。モックAPI専用スイートは別途元のモックサーバーが必要。
+- 既存のデザイン用スイートは `test:e2e:design`、旧12件モックAPI契約は `feed.legacy.spec.ts` / `test:e2e:legacy` として保持。legacyは現行UIのカタログ取得・登録導線と非互換で、旧サーバー起動だけで成功するとは扱わない。標準E2Eには含めず、削除・skipによる成功扱いもしない。

@@ -18,7 +18,9 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-http://localhost:5173/ を開きます。Viteは `/api` を `http://127.0.0.1:8080` へ転送します。GoとViteを同じ環境で起動してください。WindowsとWSLでnode_modulesを共用しないでください。
+http://127.0.0.1:5173/ を開きます。Viteは `/api` を `http://127.0.0.1:8080` へ転送します。GoとViteを同じ環境で起動してください。WindowsとWSLでnode_modulesを共用しないでください。
+
+正式なAPIは `cmd/news-server` です。旧 `server/cmd/api` はlegacyモックとして保持していますが、現行 `ApiApp` の起動時に必要な `GET /api/analyses` が405となるため、現行画面の接続先にはしません。`-model=""` では登録フォームが表示されないのが正常で、保存済み解析から閲覧します。
 
 配布用ビルドは `pnpm build`、確認は `pnpm preview` です。別のWebサーバーでdistを公開する場合は、同じオリジンの `/api` からGo APIへ転送する設定が必要です。
 
@@ -148,23 +150,30 @@ pnpm exec playwright install --with-deps chromium firefox
 pnpm test:e2e
 ```
 
-実データの取り込みとビルド後は `pnpm test:e2e:live` で統合サーバーと本番UIを確認できます（サーバーは自動起動・終了し、LLMは無効）。
+`test:e2e` は本番ビルド後、Playwrightが現行 `cmd/news-server` を4176番で自動起動・終了します。既存の `cmd/repo-analyze/testdata/pre-citation-fix` を一時領域へimportし、サーバーを再起動して保存結果を読みます。fixtureは1件の有効な部分結果を含む未完了解析で、完了・安全と偽装しません。`.local/news` は使わず、終了時に一時領域を削除します。外部LLM・GitHub・OSVへの通信はありません。
 
-PR由来のモック専用テストも保持しています。main由来のモックサーバーをリポジトリ直下から `go run ./server/cmd/api` で8080番ポートに起動した状態で（実解析サーバーとは同時起動しない）、`pnpm test:e2e:api` を実行すると、API取得・登録・解析状況・詳細表示・通信エラーの再試行をブラウザーで確認できます。フロントは4174番ポートで自動起動します。インストール済みChromeを使う場合は `PLAYWRIGHT_CHANNEL=chrome` を指定できます。
+| コマンド | 対象 |
+| --- | --- |
+| `pnpm test:e2e` | 現行APIと本番UI（Chromium / Firefox） |
+| `pnpm test:e2e:api` | 上記の保存結果・検索・詳細・モバイル・カタログ再取得 |
+| `pnpm test:e2e:production` | 上記のURLモック指定の無効化・API障害表示 |
+| `pnpm test:e2e:design` | 従来の開発用ローカル画面・アクセシビリティ検証 |
+| `pnpm test:e2e:legacy` | 旧12件モックAPI契約の歴史的スイート（現行UI非互換、標準検証外） |
+| `pnpm test:e2e:live` | 別途取り込んだNext.js実解析582件専用のopt-in検証 |
 
-通常の `test:e2e` は従来の画面確認用にローカルデータで実行します。配布用ビルドを対象とする `test:e2e:production` はAPIも起動して実行してください。
+legacyスイートは `feed.legacy.spec.ts` として保持しています。旧モックAPIの起動だけでは現行UIのカタログ取得・登録導線を満たさず、成功する現行テストとしては扱いません。旧API・SQLite実装は変更しません。実データ専用liveスイートの前提は [全体結合ガイド](../docs/e2e-integration.md#非LLM検証) を参照してください。
 
 `typecheck`はアプリとE2Eコードの型を確認します。`test`はVitest、`build`は型チェックと配布用ビルドです。Playwrightのブラウザー導入は初回とバージョン変更時に必要です。Linuxのシステム依存関係を導入する`--with-deps`は管理者権限を要求する場合があります。
 
-E2Eは[frontend.spec.ts](e2e/frontend.spec.ts)のシナリオをChromiumとFirefoxで実行する構成です。実データ側の検証方法は全体結合ガイドにまとめています。標準ではテスト用の開発サーバーを`127.0.0.1:4173`で起動します。検索・絞り込み、Indeed型スクロール、複数リポジトリ、プロフィールとコメント、保存記事の別セッション復元、解析の重複・中止、壊れた保存データ、共有、保存拒否、表示状態、文字拡大、MVP、長文、タブ間の保存競合を確認します。axeによる自動アクセシビリティ検査も含みます。
+デザイン専用の `test:e2e:design` は[frontend.spec.ts](e2e/frontend.spec.ts)などのシナリオをChromiumとFirefoxで実行し、開発サーバーを`127.0.0.1:4173`で起動します。検索・絞り込み、Indeed型スクロール、複数リポジトリ、プロフィールとコメント、保存記事の別セッション復元、解析の重複・中止、壊れた保存データ、共有、保存拒否、表示状態、文字拡大、MVP、長文、タブ間の保存競合を確認します。axeによる自動アクセシビリティ検査も含みます。
 
-すでに起動したローカルサーバーを使う場合は、任意の`PLAYWRIGHT_BASE_URL`を指定します。この場合Playwrightはサーバーを起動しません。
+デザイン専用テストで起動済みのローカルプレビューを使う場合だけ、`PLAYWRIGHT_BASE_URL`を指定できます。この場合Playwrightはサーバーを起動しません。標準E2Eはfixtureとサーバーを自動管理し、外部サーバー指定は使用しません。
 
 ```bash
-PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 pnpm test:e2e
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 pnpm test:e2e:design
 ```
 
-Windows PowerShellの場合は環境変数の指定を`$env:PLAYWRIGHT_BASE_URL = "http://127.0.0.1:5173"`とし、同じシェルで`pnpm test:e2e`を実行します。既存サーバーの利用時も、ブラウザーと依存関係はテストを実行するOS側にインストールします。
+Windows PowerShellの場合は環境変数の指定を`$env:PLAYWRIGHT_BASE_URL = "http://127.0.0.1:5173"`とし、同じシェルで`pnpm test:e2e:design`を実行します。既存サーバーの利用時も、ブラウザーと依存関係はテストを実行するOS側にインストールします。
 
 失敗時は`playwright-report/`と`test-results/`に結果・スクリーンショット・トレースが残ります。`pnpm exec playwright show-report`でHTMLレポートを開けます。実データ側の実施環境、結果、制限は[全体結合ガイド](../docs/e2e-integration.md)を参照してください。自動検査の成功だけで、実機操作やスクリーンリーダーでの検証が済んだとは扱いません。
 
