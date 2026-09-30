@@ -30,7 +30,7 @@ function date(value: unknown): string {
 function list<T>(value: unknown, max: number, parse: (item: unknown) => T): T[] {
   return Array.isArray(value) && value.length <= max ? value.map(parse) : invalid()
 }
-function parseItem(value: unknown): FeedItem {
+export function parseFeedItem(value: unknown): FeedItem {
   const item = record(value)
   const analysis = record(item.analysis)
   const id = text(item.id, 200)
@@ -38,18 +38,19 @@ function parseItem(value: unknown): FeedItem {
   const result: FeedItem = {
     id, advisoryId: text(item.advisoryId, 2048), title: text(item.title),
     product: text(item.product), affectedVersions: text(item.affectedVersions), fixedVersion: text(item.fixedVersion),
-    severity: choice(item.severity, ['critical', 'high', 'medium', 'low']),
+    severity: choice(item.severity, ['critical', 'high', 'medium', 'low', 'none', 'unknown']),
     cvss: item.cvss === null ? null : number(item.cvss, 0, 10),
     publishedAt: date(item.publishedAt), updatedAt: date(item.updatedAt),
-    summary: text(item.summary), exploitation: choice(item.exploitation, ['observed', 'poc', 'not-observed']),
+    summary: text(item.summary), exploitation: choice(item.exploitation, ['observed', 'poc', 'not-observed', 'unknown']),
     affectedComponent: text(item.affectedComponent),
     remediation: list(item.remediation, 100, value => text(value)),
-    analysis: { summary: text(analysis.summary), evidence: text(analysis.evidence), confidence: choice(analysis.confidence, ['high', 'medium', 'low']) },
+    analysis: { summary: text(analysis.summary), evidence: text(analysis.evidence), confidence: choice(analysis.confidence, ['high', 'medium', 'low', 'unknown']) },
     sources: list(item.sources, 100, value => {
       const source = record(value)
       return { name: text(source.name), url: text(source.url, 2048), kind: choice(source.kind, ['vendor', 'reference']) }
     }),
   }
+  if (item.cvssSource !== undefined) result.cvssSource = text(item.cvssSource)
   if (item.assessment !== undefined) result.assessment = choice(item.assessment, ['unverified'] as const)
   if (item.repositoryAnalysis !== undefined) result.repositoryAnalysis = choice(item.repositoryAnalysis, ['analyzed', 'pending'] as const)
   if (item.relevance !== undefined) {
@@ -71,9 +72,12 @@ function parseItem(value: unknown): FeedItem {
 /** Reject a malformed page before sorting or rendering, rather than guessing missing facts. */
 export function parseFeedResult(value: unknown): FeedResult {
   const data = record(value)
-  const items = list(data.items, 1000, parseItem)
+  const items = list(data.items, 10_000, parseFeedItem)
   const total = count(data.total)
   const matchedTotal = count(data.matchedTotal)
   if (new Set(items.map(item => item.id)).size !== items.length || matchedTotal !== items.length || total < matchedTotal) return invalid()
-  return { items, total, matchedTotal, generatedAt: date(data.generatedAt) }
+  return { items, total, matchedTotal, generatedAt: date(data.generatedAt),
+      ...(data.scanStatus === undefined ? {} : { scanStatus: choice(data.scanStatus, ['complete', 'incomplete'] as const) }),
+      ...(data.repositoryCommit === undefined ? {} : { repositoryCommit: text(data.repositoryCommit, 200) }),
+    }
 }

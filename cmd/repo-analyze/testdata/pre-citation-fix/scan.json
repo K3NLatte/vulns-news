@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "profile": {
+    "repository": {
+      "id": "github:example/archive-app",
+      "canonical_url": "https://github.com/example/archive-app",
+      "ref": "main",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "profiled_at": "2026-09-25T12:00:00Z",
+    "languages": null,
+    "ecosystems": null,
+    "components": [
+      {
+        "id": "archive-lock-dependency",
+        "purl": "pkg:npm/archive@1.0.0",
+        "ecosystem": "npm",
+        "name": "archive",
+        "version": "1.0.0",
+        "direct": true,
+        "scope": "production",
+        "source_path": "package-lock.json"
+      }
+    ],
+    "products": null,
+    "containers": null,
+    "infrastructure": null
+  },
+  "report": {
+    "repository": {
+      "id": "github:example/archive-app",
+      "canonical_url": "https://github.com/example/archive-app",
+      "ref": "main",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "started_at": "2026-09-25T12:00:00Z",
+    "finished_at": "2026-09-25T12:00:01Z",
+    "acquisition": "complete",
+    "status": "complete",
+    "refresh_complete": true,
+    "queries": [
+      {
+        "query": {
+          "ecosystem": "npm",
+          "name": "archive",
+          "version": "1.0.0"
+        },
+        "origins": [
+          {
+            "id": "archive-lock-dependency",
+            "purl": "pkg:npm/archive@1.0.0",
+            "ecosystem": "npm",
+            "name": "archive",
+            "version": "1.0.0",
+            "direct": true,
+            "scope": "production",
+            "source_path": "package-lock.json"
+          }
+        ],
+        "workspace": "unavailable",
+        "dependency_path": "unavailable",
+        "complete": true,
+        "outcome": "affected_version_match",
+        "ids": [
+          "GHSA-2345-6789-cfgh",
+          "GHSA-3456-789c-fghj",
+          "GHSA-4567-89cf-ghjm"
+        ],
+        "matches": [
+          {
+            "record_key": "osv:GHSA-2345-6789-cfgh",
+            "outcome": "affected_version_match",
+            "fixed_versions": [
+              "2.0.0"
+            ]
+          },
+          {
+            "record_key": "osv:GHSA-3456-789c-fghj",
+            "outcome": "affected_version_match",
+            "fixed_versions": [
+              "2.0.0"
+            ]
+          },
+          {
+            "record_key": "osv:GHSA-4567-89cf-ghjm",
+            "outcome": "affected_version_match",
+            "fixed_versions": [
+              "2.0.0"
+            ]
+          }
+        ],
+        "runtime_impact": "unknown"
+      }
+    ],
+    "unqueried": [],
+    "records": {
+      "osv:GHSA-2345-6789-cfgh": {
+        "source": "osv",
+        "id": "GHSA-2345-6789-cfgh",
+        "aliases": [],
+        "withdrawn": false,
+        "raw": {
+          "id": "GHSA-2345-6789-cfgh",
+          "published": "2026-09-01T00:00:00Z",
+          "modified": "2026-09-25T00:00:00Z",
+          "summary": "Archive extraction advisory",
+          "details": "The affected package version is listed; repository exploitability is not established.",
+          "affected": [
+            {
+              "package": {
+                "ecosystem": "npm",
+                "name": "archive"
+              },
+              "ranges": [
+                {
+                  "type": "SEMVER",
+                  "events": [
+                    {
+                      "introduced": "0"
+                    },
+                    {
+                      "fixed": "2.0.0"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "osv:GHSA-3456-789c-fghj": {
+        "source": "osv",
+        "id": "GHSA-3456-789c-fghj",
+        "aliases": [],
+        "withdrawn": false,
+        "raw": {
+          "id": "GHSA-3456-789c-fghj",
+          "published": "2026-09-01T00:00:00Z",
+          "modified": "2026-09-25T00:00:00Z",
+          "summary": "Archive extraction advisory",
+          "details": "The affected package version is listed; repository exploitability is not established.",
+          "affected": [
+            {
+              "package": {
+                "ecosystem": "npm",
+                "name": "archive"
+              },
+              "ranges": [
+                {
+                  "type": "SEMVER",
+                  "events": [
+                    {
+                      "introduced": "0"
+                    },
+                    {
+                      "fixed": "2.0.0"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "osv:GHSA-4567-89cf-ghjm": {
+        "source": "osv",
+        "id": "GHSA-4567-89cf-ghjm",
+        "aliases": [],
+        "withdrawn": false,
+        "raw": {
+          "id": "GHSA-4567-89cf-ghjm",
+          "published": "2026-09-01T00:00:00Z",
+          "modified": "2026-09-25T00:00:00Z",
+          "summary": "Archive extraction advisory",
+          "details": "The affected package version is listed; repository exploitability is not established.",
+          "affected": [
+            {
+              "package": {
+                "ecosystem": "npm",
+                "name": "archive"
+              },
+              "ranges": [
+                {
+                  "type": "SEMVER",
+                  "events": [
+                    {
+                      "introduced": "0"
+                    },
+                    {
+                      "fixed": "2.0.0"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "groups": [
+      {
+        "ids": [
+          "GHSA-2345-6789-cfgh"
+        ],
+        "record_keys": [
+          "osv:GHSA-2345-6789-cfgh"
+        ],
+        "runtime_impact": "unknown"
+      },
+      {
+        "ids": [
+          "GHSA-3456-789c-fghj"
+        ],
+        "record_keys": [
+          "osv:GHSA-3456-789c-fghj"
+        ],
+        "runtime_impact": "unknown"
+      },
+      {
+        "ids": [
+          "GHSA-4567-89cf-ghjm"
+        ],
+        "record_keys": [
+          "osv:GHSA-4567-89cf-ghjm"
+        ],
+        "runtime_impact": "unknown"
+      }
+    ],
+    "warnings": [
+      "OS and deployment environment unevaluated; runtime impact unknown",
+      "Workspace and dependency path unavailable in repository profile",
+      "NVD metadata not checked"
+    ],
+    "ecosystems": [
+      {
+        "ecosystem": "npm",
+        "components": 1,
+        "queries": 1,
+        "unqueried": 0,
+        "complete": true
+      }
+    ],
+    "enrichment": [],
+    "runtime_impact": "unknown"
+  }
+}

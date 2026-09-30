@@ -156,7 +156,7 @@
   .detail-id-row { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; flex-wrap: wrap; }
   .copy-feedback { color: var(--accent); font-size: .875rem; }
   .feed-detail #detail-title { font-size: 1.5rem; line-height: 1.65; letter-spacing: -.015em; overflow-wrap: anywhere; }
-  .feed-detail h3 { display: flex; align-items: center; gap: 8px; }
+  .feed-detail .detail-section-heading { display: flex; align-items: center; gap: 8px; font-size: 1.125rem; line-height: 1.6; }
   .detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 18px; color: var(--muted); font-size: .875rem; }
   .detail-cvss { display: inline-flex; align-items: center; gap: 8px; }
   .detail-summary { margin-top: 24px; font-size: 1rem; line-height: 1.9; max-width: 70ch; }
@@ -171,6 +171,7 @@
   .analysis-section > p, .analysis-section details p { margin-top: 14px; font-size: 1rem; line-height: 1.9; }
   .confidence-label { font-size: .875rem; color: var(--muted); }
   .analysis-section details { margin-top: 14px; }
+  .analysis-section details p { white-space: pre-line; }
   .analysis-section summary { cursor: pointer; padding-block: 8px; color: var(--accent); width: fit-content; }
   .reference-section ul { margin: 16px 0 0; padding: 0; list-style: none; }
   .reference-section li { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }

@@ -11,3 +11,16 @@ test-results/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Local analysis data and branch-reconstruction backups
+.local/
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/*.tsbuildinfo
+
+# Local distribution archives and generated bundled notebook
+*.zip
+docs/colab-standalone.ipynb
+__pycache__/
