@@ -3,6 +3,26 @@ import type { FeedResult } from '../src/types/feed'
 
 const articles = '脆弱性記事'
 
+test('製品名は狭い画面で文字を拡大しても読み取れ、キーボードでフィードへ戻れる', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 812 })
+  await page.goto('/#/repositories')
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+  const brand = page.getByRole('link', { name: 'とりあーじアナウンサー フィード', exact: true })
+  await expect(brand).toBeVisible()
+  await expect(page).toHaveTitle(/とりあーじアナウンサー$/)
+  await expect.poll(() => brand.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    return rect.left >= 0 && rect.right <= innerWidth && element.scrollWidth <= element.clientWidth
+  })).toBe(true)
+  await brand.focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/#\/feed$/)
+  await page.getByRole('button', { name: 'example/archive-app — 結果を開く', exact: true }).click()
+  const repository = page.locator('.active-repository')
+  await expect(repository).toContainText('https://github.com/example/archive-app')
+  await expect.poll(() => repository.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+})
+
 test('imported partial analysis survives restart and opens without registration', async ({ page, request }) => {
   const writes: string[] = []
   const errors: string[] = []

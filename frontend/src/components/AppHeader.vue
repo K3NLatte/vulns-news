@@ -8,8 +8,8 @@ defineEmits<{ account: [] }>()
 
 <template>
   <header class="app-header">
-    <a class="brand" href="#/feed" aria-label="vulns-news フィード">
-      vulns<span class="brand-divider">/</span><span class="brand-news">news</span>
+    <a class="brand" href="#/feed" aria-label="とりあーじアナウンサー フィード">
+      とりあーじ<span class="brand-news">アナウンサー</span>
     </a>
     <nav v-if="fullFeatures" class="header-actions" aria-label="メインメニュー">
       <a href="#/analyze" :aria-current="page === 'analyze' ? 'page' : undefined">

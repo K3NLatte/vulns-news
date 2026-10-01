@@ -299,7 +299,7 @@ for (const personalized of [false, true]) {
       ? `/#/article/demo-001?repository=${encodeURIComponent(repository)}` : '/#/article/demo-001')
     if (personalized) await registerRepository(page)
     await expect(page.locator('h1#detail-title')).toBeVisible()
-    await expect(page.getByRole('heading', { name: '対応の確認ポイント', level: 2, exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '解析結果に基づく対応案', level: 2, exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: '参照情報', level: 2, exact: true })).toBeVisible()
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
     await page.locator('.poc-section summary').click()

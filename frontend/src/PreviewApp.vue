@@ -153,7 +153,7 @@ watch([route, selected], () => {
   const title = current.page === 'article' ? selected.value?.advisoryId ?? '記事'
     : current.page === 'settings' ? '設定' : current.page === 'analyze' ? '脆弱性を分析'
       : current.page === 'saved' ? '保存した記事' : current.page === 'repositories' ? 'リポジトリに関連' : '脆弱性フィード'
-  document.title = title + ' | vulns-news'
+  document.title = title + ' | とりあーじアナウンサー'
 }, { immediate: true })
 
 watch(route, async (next, previous) => {

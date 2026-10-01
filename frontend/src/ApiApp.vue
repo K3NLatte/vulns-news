@@ -122,7 +122,7 @@ watch(detailLoading, async busy => {
   document.getElementById('detail-title')?.focus({ preventScroll: true })
 })
 watch([route, selected], () => {
-  document.title = (articlePage.value ? selected.value?.advisoryId ?? '記事' : personalized.value ? 'リポジトリに関連' : '脆弱性フィード') + ' | vulns-news'
+  document.title = (articlePage.value ? selected.value?.advisoryId ?? '記事' : personalized.value ? 'リポジトリに関連' : '脆弱性フィード') + ' | とりあーじアナウンサー'
 }, { immediate: true })
 
 let previousList = route.value.page === 'article' && route.value.repositoryUrl ? '#/repositories' : '#/feed'
@@ -247,7 +247,7 @@ onScopeDispose(() => { clearTimeout(searchTimer); registrationController?.abort(
       <section aria-label="保存済み解析" class="saved-analyses">
         <h2>保存済み解析結果</h2>
         <p v-if="catalogLoading" role="status">保存済み解析を読み込み中…</p>
-        <p v-else-if="catalogError" role="alert">{{ catalogError }} <button type="button" @click="loadSavedAnalyses">再取得</button></p>
+        <p v-else-if="catalogError" role="alert">{{ catalogError }} <button type="button" class="text-button" @click="loadSavedAnalyses">再取得</button></p>
         <template v-else>
           <p>{{ readOnly ? '読み取り専用：保存済みの結果を閲覧します。新規スキャン・LLM実行は行いません。' : '保存済みの結果を閲覧します。結果を開く操作では新規スキャンを開始しません。' }}</p>
           <p v-if="!savedAnalyses.length">保存済み解析はありません。対応する analysis-scan-state.json と analysis-results.json を import CLI で取り込んでから「再取得」を押してください。</p>
@@ -255,7 +255,7 @@ onScopeDispose(() => { clearTimeout(searchTimer); registrationController?.abort(
             <summary>解析結果を選択（{{ savedAnalyses.length }}件）</summary>
             <ul>
               <li v-for="saved in savedAnalyses" :key="saved.job.repository_id">
-                <button type="button" @click="openSavedAnalysis(saved.job.repository_id)">{{ saved.url.replace('https://github.com/', '') }} — 結果を開く</button>
+                <button type="button" class="secondary-button" @click="openSavedAnalysis(saved.job.repository_id)">{{ saved.url.replace('https://github.com/', '') }} — 結果を開く</button>
                 <span> {{ saved.itemCount }}件 · 分析済み {{ saved.job.confirmedCount ?? 0 }} · 未確定 {{ saved.job.pendingCount ?? 0 }} · {{ saved.scanStatus === 'incomplete' ? 'カバレッジ不完全' : 'スキャン範囲の処理完了' }}</span>
                 <p>ref: {{ saved.ref || 'HEAD' }} · commit: <code>{{ saved.commit }}</code> · {{ saved.updatedAt }}</p>
               </li>
@@ -265,7 +265,7 @@ onScopeDispose(() => { clearTimeout(searchTimer); registrationController?.abort(
         </template>
       </section>
       <template v-if="route.page === 'repositories'">
-        <p v-if="activeRepository">表示中：{{ activeRepository }}</p>
+        <p v-if="activeRepository" class="active-repository">表示中：{{ activeRepository }}</p>
         <details v-if="!readOnly"><summary>新規スキャン（公開URLを登録）</summary>
         <RepositoryForm :repository="activeRepository" :busy="registrationBusy" @submit="setRepository" />
         </details>
@@ -314,12 +314,3 @@ onScopeDispose(() => { clearTimeout(searchTimer); registrationController?.abort(
     </div>
   </main>
 </template>
-
-<style scoped>
-.saved-analyses { margin-block: 16px; padding: 16px; border: 1px solid var(--line); background: var(--surface); }
-.saved-analyses h2 { margin: 0 0 8px; font-size: 1.1rem; }
-.saved-analyses ul { list-style: none; padding: 0; }
-.saved-analyses li { margin-block: 12px; overflow-wrap: anywhere; }
-.saved-analyses button { padding: 6px 10px; cursor: pointer; }
-.saved-analyses summary { cursor: pointer; }
-</style>

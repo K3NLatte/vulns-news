@@ -53,7 +53,7 @@ test('capture saved analysis for presentation slides', async ({ page, request })
   await page.screenshot({ path: resolve(output, '02-article-detail.png'), animations: 'disabled' })
 
   await page.getByText('根拠を読む', { exact: true }).click()
-  await page.getByRole('heading', { name: '対応の確認ポイント', exact: true }).scrollIntoViewIfNeeded()
+  await page.getByRole('heading', { name: '解析結果に基づく対応案', exact: true }).scrollIntoViewIfNeeded()
   await page.screenshot({ path: resolve(output, '03-analysis-evidence.png'), animations: 'disabled' })
   await page.screenshot({ path: resolve(output, '04-article-full.png'), fullPage: true, animations: 'disabled' })
   await writeFile(resolve(output, 'capture.json'), JSON.stringify({
