@@ -308,7 +308,7 @@ function updateReviewStatus(event: Event) {
       </section>
 
       <section v-if="!pending" class="detail-section" aria-labelledby="remediation-heading">
-        <component :is="sectionHeading" id="remediation-heading" class="detail-section-heading">対応の確認ポイント</component>
+        <component :is="sectionHeading" id="remediation-heading" class="detail-section-heading">解析結果に基づく対応案</component>
         <ol class="remediation-list">
           <li v-for="step in item.remediation" :key="step">{{ step }}</li>
         </ol>

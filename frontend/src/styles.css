@@ -58,8 +58,7 @@
 
 @layer layout {
   .app-header { min-height: 80px; padding: 12px max(32px, calc((100vw - 1536px) / 2)); display: flex; align-items: center; justify-content: space-between; gap: 24px; background: white; border-bottom: 1px solid var(--ink); }
-  .brand { display: inline-flex; align-items: baseline; color: var(--ink); text-decoration: none; font-family: Georgia, serif; font-size: 1.875rem; font-weight: 700; letter-spacing: -.035em; white-space: nowrap; }
-  .brand-divider { color: #888; font-weight: 400; margin-inline: 6px; }
+  .brand { display: inline-flex; flex-wrap: wrap; max-width: 100%; align-items: baseline; color: var(--ink); text-decoration: none; font-family: var(--editorial); font-size: 1.875rem; font-weight: 700; letter-spacing: -.035em; white-space: nowrap; }
   .brand-news { border-bottom: 3px solid var(--accent); padding-bottom: 2px; }
   .header-actions { display: flex; align-items: center; gap: 24px; min-width: 0; }
   .header-actions a, .header-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 5px 0; text-decoration: none; color: var(--ink); background: none; border: 0; }
@@ -93,6 +92,15 @@
 }
 
 @layer components {
+  .active-repository { overflow-wrap: anywhere; }
+  .saved-analyses { margin-block: 16px; padding: 16px; border: 1px solid var(--line); background: var(--surface); }
+  .saved-analyses h2 { margin-bottom: 8px; font-size: 1.125rem; }
+  .saved-analyses ul { list-style: none; margin-block: 8px; padding: 0; }
+  .saved-analyses li { margin-block: 12px; overflow-wrap: anywhere; }
+  .saved-analyses li > span { display: inline-block; margin: 8px 0 8px 12px; color: var(--muted); font-size: .875rem; line-height: 1.7; }
+  .saved-analyses li > p { margin-top: 8px; color: var(--muted); font-size: .875rem; line-height: 1.7; }
+  .saved-analyses .secondary-button { max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+  .saved-analyses summary { min-height: 44px; padding-block: 10px; cursor: pointer; line-height: 1.5; }
   .primary-button, .secondary-button { min-height: 44px; padding: 10px 18px; border-radius: var(--radius); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; line-height: 1.4; }
   .primary-button { background: var(--accent); color: white; border: 1px solid var(--accent); }
   .primary-button:hover { background: var(--accent-hover); }
@@ -310,6 +318,7 @@
     .is-expanded .detail-content { padding: 0 28px 28px; }
   }
   @media (max-width: 599px) {
+    .saved-analyses li > span { display: block; margin-left: 0; }
     .app-header { padding: 12px 16px; min-height: 72px; gap: 14px; flex-wrap: wrap; }
     .brand { font-size: 1.5rem; }
     .header-actions { gap: 14px; flex-wrap: wrap; }

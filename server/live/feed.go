@@ -27,7 +27,7 @@ func Items(report scananalyze.Report, prepared []scananalyze.Prepared, records m
   v := p.Input.Vulnerability
   item := model.FeedItem{
    ID: entry.ID, AdvisoryID: entry.ID, Title: nonempty(v.Description, entry.ID),
-   Product: "未確認", AffectedComponent: "未確認", AffectedVersions: "未確認", FixedVersion: "未確認（アドバイザリを参照）",
+   Product: "未確認", AffectedComponent: "未確認", AffectedVersions: "未確認", FixedVersion: "参照情報で確認してください",
    Severity: strings.ToLower(f.Severity), CVSS: f.CVSS,
    PublishedAt: stamp(f.PublishedAt), UpdatedAt: stamp(f.VulnerabilityRevision),
    Summary: nonempty(f.ScreeningReason, "スクリーニング結果を確認してください。"),
