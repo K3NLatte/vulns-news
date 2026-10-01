@@ -1,4 +1,4 @@
-# vulns-news
+# とりあーじアナウンサー
 
 ## Platform
 

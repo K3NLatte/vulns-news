@@ -1,100 +1,150 @@
-# vulns-news
+# とりあーじアナウンサー
 
-## 実スキャン・解析・保存・Feed・画面の結合
+**その脆弱性、うちのシステムに関係ある？**
 
-`cmd/news-server` が公開GitHubの取得 → OSV照合 → 既存Screening／Deep Analysis → JSON保存 → Feed API → Vue画面を接続します。既存の `server` / `src/scanjob` のスキャン専用実装は保持しています。
+公開GitHubリポジトリの依存パッケージと脆弱性情報を照合し、LLMによる要約・影響説明・対応案を記事として読むWebアプリケーションです。PSIRTやソフトウェアの保守担当者が、関係する情報と根拠を確認し、次に調べることを判断するために開発しています。
+
+MWS Cup 2026 ハッカソン / 開発チーム：**浜松鰻**
+
+リポジトリ名・Goモジュール名は `vulns-news` です。
+
+## 工夫した点
+
+| 工夫 | 利用者にとっての役割 | 実装 |
+| --- | --- | --- |
+| リポジトリの構成から候補を絞る | lockfile等から得たエコシステム・パッケージ名・確定バージョンをOSVと照合し、確認する情報を絞る | [依存抽出・照合](docs/repository-scan.md) |
+| 一次判定と詳細解析を分ける | 関連ありの候補を詳しく分析し、判断がつかない候補は未確定として残す | [解析パイプライン](docs/local-llm.md) |
+| 分析結果から根拠へたどれる記事表示 | 要約だけで判断せず、依存パッケージ、対象コミット、参照元、未確認事項を確認する | [API変換](server/live/feed.go)・[記事表示](frontend/src/components/FeedDetail.vue) |
+| 解析結果を保存して再利用する | 毎回LLMの完了を待たずに、保存した結果を読み直す。途中まで得られた結果も表示する | [保存・復元とAPI](docs/e2e-integration.md) |
+
+依存関係の照合、LLMの説明、根拠の確認を一つの閲覧の流れにつなぐことが、この作品の工夫です。OSVやOllama等の既存技術を利用しています。LLMの出力形式と参照する根拠IDは検証しますが、説明内容の正しさや攻撃成立まで保証するものではありません。
+
+## 現在できること
+
+1. 公開GitHubリポジトリを取得し、解析対象のコミットを固定する。
+2. 対応するmanifest／lockfileから構成を抽出し、OSVから該当する脆弱性情報を取得する。
+3. Ollamaで一次判定を行い、関連ありの候補を詳細解析する。
+4. 結果をJSONで保存し、検索・CVSS重要度による絞り込み・記事詳細・参照元の確認を行う。
+5. 保存済み解析を読み込み、LLMを再実行せずに閲覧する。
+
+標準画面のフィードは、保存済みリポジトリの解析結果をまとめたものです。インターネット上の全脆弱性を定期収集する一般ニュースフィードではありません。
+
+CVSSは出典にある基本値です。リポジトリ固有の危険度、悪用状況、分析の確度とは区別して表示します。判定がつかない項目やスキャン範囲の不足も画面に残します。
+
+## まず画面を試す
+
+### 準備
+
+Git、Go 1.25以上、Node.js 24.x、pnpmを使います（フロントエンドの検証環境はNode.js 24.15.0）。Linux・macOSでは、リポジトリの [Nix開発環境](flake.nix) に必要なツールをまとめています。WindowsではWSLを利用できます。以下のコマンドはリポジトリ直下で実行します。
 
 ```sh
+git clone https://github.com/K3NLatte/vulns-news.git
+cd vulns-news
+nix develop path:.
 pnpm --dir frontend install --frozen-lockfile
 pnpm --dir frontend build
-go run ./cmd/news-server -model=""
 ```
 
-http://127.0.0.1:8080/ を開きます。上記は保存結果の閲覧専用で、初回は空です。既存解析の取り込み、新規スキャンを有効にする方法、非LLM検証は [全体結合ガイド](docs/e2e-integration.md) を参照してください。
+Nixを使わない場合は各ツールを用意し、`nix develop` を省略してください。Go・Node.js・pnpmは同じ環境で実行し、WindowsとWSLで `node_modules` を共用しないでください。
 
-現行フロントの正式な接続先は `cmd/news-server` です。旧 `server/cmd/api` のモックAPIとSQLite実装は互換性維持のため保持していますが、現行画面に必要な `GET /api/analyses` に対応せず、接続先としては使用しません。保存データの自動移行も行いません。
+### LLMなしで保存結果を開く
 
-標準GUI検証は `pnpm --dir frontend test:e2e`。本番ビルドと現行サーバーを使い、リポジトリ内fixtureを一時領域に取り込むため、外部LLM・スキャン・手元の実解析データは不要です。初回のブラウザー導入などは [フロントガイド](frontend/README.md#検証) を参照してください。
-
-
-## 開発環境
-
-[Nix](https://nixos.org/) の開発シェルに Go、Node.js、pnpm、SQLite のコマンドを用意します。Vueアプリは `frontend` にあります。
+リポジトリ内のテストデータを取り込みます。これは**未完了の解析に有効な部分結果が1件ある検証用データ**で、提出動画の解析データとは異なります。取り込み・閲覧時に外部スキャンやLLM推論は行いません。
 
 ```sh
-nix develop path:.
+go run ./cmd/news-server -data .local/readme-demo \
+  -import-scan cmd/repo-analyze/testdata/pre-citation-fix/scan.json \
+  -import-analysis cmd/repo-analyze/testdata/pre-citation-fix/analysis.json \
+  -import-only
+
+go run ./cmd/news-server -data .local/readme-demo -model=""
 ```
 
-開発シェル内で各コマンドを確認できます。
+[http://127.0.0.1:8080/](http://127.0.0.1:8080/) を開き、「保存済み解析結果」から `example/archive-app` を選びます。記事の検索、詳細表示、参照元、部分結果の表示を確認できます。
+
+取り込まずに起動した場合、初回の一覧は空です。自分の解析結果を使う場合は、対応するスキャン状態と解析結果のJSONを指定してください。[取り込み手順](docs/e2e-integration.md#既存解析のオフライン取り込み)に形式と検証条件があります。
+
+### 自分のリポジトリを解析する
+
+Ollamaを起動し、使用するモデルを取得してから、閲覧専用サーバーを終了して次を実行します。以下はモデル指定の例です。
 
 ```sh
-go version
-node --version
-pnpm --version
-sqlite3 --version
+go run ./cmd/news-server -model qwen3.5:9b -base-url http://127.0.0.1:11434
 ```
 
-フロントエンドの開発時は、上記の `cmd/news-server` を起動したまま、別の開発シェル内で次を実行します。`/api` は8080番の現行サーバーへ転送されます。
+画面の「リポジトリに関連」で公開GitHub URLを入力し、「読み込む」を押します。解析中は進行状況と取得済みの部分結果を確認できます。所要時間はリポジトリの構成、候補数、モデルと実行環境に依存します。
+
+- GitHubへの取得、OSVへのエコシステム・パッケージ名・バージョンの送信が発生します。
+- 照合した依存関係・ソースパス・アドバイザリの材料を、設定したOllamaの接続先へ送ります。
+- 認証・認可は未実装です。既定の待受先は `127.0.0.1` です。インターネットへ公開する場合は、アクセス制御や実行制限を別途用意する必要があります。
+
+API、停止・再起動、データ保存先は [全体結合ガイド](docs/e2e-integration.md) に記載しています。
+
+## 提出デモと確認できた範囲
+
+提出デモでは、次の保存済み解析を実APIに取り込んで閲覧しています。動画内で解析全体を新規実行しているわけではありません。
+
+| 項目 | 内容 |
+| --- | --- |
+| 対象 | `vercel/next.js` |
+| 対象コミット | `0423222b7eb3a1373b5bff4c939fd69858928993` |
+| 解析モデル | `qwen3.5:9b` |
+| 候補 | 591件 |
+| 結果 | 詳細解析355件、スクリーニングのみ227件、除外9件 |
+| フィード表示 | 582件 |
+| スキャン範囲 | `incomplete`。未確認の範囲を画面に表示 |
+
+これは一つの保存データでの動作確認です。検出精度、見落とし率、作業時間の削減率を評価した結果ではありません。元の解析JSONはリポジトリに同梱していません。手元にデータがない場合は、上記の検証用データで操作を試せます。
+
+## 制限
+
+- 対応するファイル形式からの静的な構成抽出です。完全な依存解決や、実際の本番環境への導入を証明しません。[対応形式と制限](docs/local-llm.md)を参照してください。
+- 脆弱な機能の使用、実行時の到達可能性、攻撃成立、悪用可能性の推定、KEV参照、PoC生成・実行は今回の対象外です。検出0件や解析完了は、安全の保証ではありません。
+- LLMの誤った関連付けや見落としは残り得ます。根拠IDの検証は、分析内容が正しいことの検証とは異なります。
+- privateリポジトリ、GitHubログイン、定期解析、公開サービス向けの認証・運用制御は未実装です。ログイン・記事保存・コメント等の開発用画面案は、標準画面には接続していません。
+- 現行サーバーはJSONファイルで保存します。独立して実装済みのSQLite保存処理は未接続です。`server/cmd/api` は旧モックAPIで、現在の画面の接続先ではありません。
+- 統合サーバーのOSV経路ではNVD補完を無効にしています。NVDを使う別のCLI経路と、統合画面の動作を混同しないでください。
+
+## 今後の検討
+
+以下は改善候補です。実装済み機能や期限を確約した計画ではありません。
+
+| 課題 | 次に確かめること |
+| --- | --- |
+| 分析品質 | 人手で確認した事例と比較し、誤った関連付け・見落とし・根拠の妥当性を評価する |
+| 対応範囲 | 未対応の構成・ファイル形式を実リポジトリで整理し、テストを伴って拡張する |
+| 待ち時間と失敗時の扱い | 候補数ごとの処理時間を測り、推論の実行期限や再試行方針を検討する |
+| 継続利用 | 保存形式の移行、更新検知、認証・アクセス制御を用途に合わせて設計する |
+| 操作性 | 保守担当者の調査で試し、検索から根拠確認までの操作と読みやすさを評価する |
+
+## 開発・検証
 
 ```sh
-pnpm --dir frontend install --frozen-lockfile
-pnpm --dir frontend dev
+go test ./...
+pnpm --dir frontend typecheck
+pnpm --dir frontend test
+pnpm --dir frontend build
+pnpm --dir frontend exec playwright install chromium firefox
+pnpm --dir frontend test:e2e
 ```
 
-Nix の設定で `nix-command` と `flakes` が無効の場合は、`nix --extra-experimental-features 'nix-command flakes' develop path:.` を使用してください。
+標準E2Eは現行サーバーを起動し、検証用データの取り込み・再起動・一覧と詳細・検索・エラーからの再取得をChromiumとFirefoxで確認します。LLMや外部スキャンは呼びません。テストデータの結果が正しく描画されることと、実際の脆弱性判断の品質は別に検証する必要があります。
 
-## OSVによる初回スキャン・保存構成の監視（GPU不要）
+フロントエンド開発時はサーバーを起動したまま、別ターミナルで `pnpm --dir frontend dev` を実行します。独自の検証・改善は目的ごとに小さなPRへ分け、再現手順と検証結果を添えてください。
 
-公開GitHubリポジトリから多言語の依存を抽出し、エコシステム＋名前＋確定バージョンでOSVに一括照会します。CVE IDがあればNVDで補完し、出典の原文・未照会理由・commit SHAをJSONに残します。
+## コード・資料の入口
 
-```sh
-go run ./cmd/repo-scan \
-  -repository https://github.com/juice-shop/juice-shop \
-  -state juice-shop-state.json > juice-shop-scan.json
+| 内容 | 場所 |
+| --- | --- |
+| 起動、API、保存、取り込み | [docs/e2e-integration.md](docs/e2e-integration.md)・[cmd/news-server](cmd/news-server)・[server/live](server/live) |
+| リポジトリ取得・OSV照合 | [docs/repository-scan.md](docs/repository-scan.md)・[src/reposcan](src/reposcan) |
+| LLM解析・根拠検証・対応形式 | [docs/local-llm.md](docs/local-llm.md)・[src/scananalyze](src/scananalyze)・[src/processor](src/processor) |
+| 画面・操作・テスト | [frontend/README.md](frontend/README.md)・[frontend/src](frontend/src) |
+| デザイン規約 | [DESIGN.md](DESIGN.md) |
+| 独立したSQLite保存処理 | [server/repository/reportstore](server/repository/reportstore) |
 
-go run ./cmd/repo-scan \
-  -monitor -state juice-shop-state.json > juice-shop-monitor.json
-```
+画面とは別に、`cmd/repo-scan` はOSVによる初回スキャンと保存構成の再照会、`cmd/repo-analyze` は保存スキャンのLLM解析、`cmd/mvp-run` はNVD起点の分析を提供します。使い分けと実行例は上記ガイドを参照してください。
 
-0件は「該当情報なし」であり、安全を意味しません。監視は保存したSHAの構成を1回再照会する方式です。自動スケジュール、全OSV/NVDの更新フィード取り込みは含みません。既存のNVD新着経路とは分離しています。
+## 公開・ライセンス
 
-**結果matrixの表示・未対応範囲・終了コード**は [`docs/repository-scan.md`](docs/repository-scan.md) を参照してください。
-
-## 保存したOSV結果をDeep Analysisまで検証
-
-`repo-analyze` は保存stateから一致候補を作り、既存のScreening → 関連ありの場合のDeep Analysis → Feedに接続します。GitHub／OSVの再取得は不要です。各LLMステージの完了を保存し、中断後は `-resume` で続行できます。
-
-```sh
-go run ./cmd/repo-analyze -state juice-shop-state.json \
-  -output analysis-results.json -model qwen3:8b -require-deep
-```
-
-デフォルトは全候補。`-require-deep` は分析済みFeedが0件なら終了1にし、E2E到達を区別します。関連性を強制する機能ではありません。GPUが有効なのはOllamaの推論です。
-
-
-## NVD クローラーと LLM 分析
-
-PR #18（`9ab2de0`）を基に、NVD クローラーが正規化済みの CVE を返し、既存の照合 → Screening → 条件付き Deep Analysis → Feed へ渡す構成です。NVD API キーは任意です。
-
-```sh
-go run ./cmd/mvp-run \
-  -repository https://github.com/juice-shop/juice-shop \
-  -model qwen3:8b \
-  -base-url http://127.0.0.1:11434
-```
-
-Ollama の起動とモデル取得が必要です。通常は NVD 全体の最新 200 件を取得し、`-published-start` / `-published-end` 指定時は既存の期間検索を使います。全既知脆弱性を調べるスキャナーではなく、Feed が空でも安全を意味しません。
-
-結果 JSON の `match_matrix` は正規化に成功した重複なしの CVE ごとに、`cve_id`、最終 `decision`、NVD/OSV の対象ごとの `target`・`repository_items_compared`・`identity_matches`・`version_excluded`・`matches` を出力します。`no_affected_targets` は照合対象なし、`no_identity_match` は識別子の完全一致なし、`version_excluded` は一致した識別子のバージョンが除外、`matched` は候補ありを示します。正規化エラーは `errors` に記録され、行は作りません。`matched` は脆弱性や到達可能性の証明ではありません。
-
-キーなしの NVD 取得だけを確認する場合（外部通信あり）:
-
-```sh
-NVD_LIVE_TEST=1 NVD_LIVE_COUNT=200 go test -v -count=1 ./src/nvd -run '^TestFetchLive$'
-```
-
-NVD の件数不整合や取得・正規化エラーは正常結果として扱わず停止します。詳細と対応範囲は [`docs/local-llm.md`](docs/local-llm.md) を参照してください。
-
-## Repository vulnerability analysis
-
-GitHub RepositoryをProfile化し、登録時刻以降に公開または更新されたCVEをNVDから200件ずつ全ページ取得して照合・分析するWorkflowを実装中です。Workflowは登録処理から未接続で、永続化・定期実行もありません。詳細は[`docs/local-llm.md`](docs/local-llm.md)を参照してください。
+ソースコードをGitHubで公開しています。現時点では、このリポジトリ全体の利用・改変・再配布条件を定めるLICENSEファイルがありません。ライセンスの決定はチームの確認事項です。外部ライブラリ・モデル・脆弱性データには、それぞれの利用条件が適用されます。
